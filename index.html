@@ -1,0 +1,457 @@
+
+<style>
+  #pong-wrap { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 0; font-family: 'Courier New', monospace; }
+  #pong-canvas { border: 1.5px solid var(--color-border-secondary); border-radius: 4px; background: #0a0a0a; display: block; }
+  #pong-ui { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+  #pong-ui button { font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; padding: 7px 18px; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-primary); border-radius: var(--border-radius-md); cursor: pointer; }
+  #pong-ui button:hover { background: var(--color-background-secondary); }
+  #speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #speed-slider { width: 130px; cursor: pointer; }
+  #speed-readout { min-width: 34px; display: inline-block; text-align: right; }
+  #pong-info { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #pong-msg { font-size: 13px; color: var(--color-text-secondary); letter-spacing: 0.08em; min-height: 20px; margin-top: 6px; }
+
+  #help-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.72);
+    border-radius: 4px;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  #help-overlay.visible { display: flex; }
+  #help-box {
+    background: #111;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 24px 30px;
+    width: 340px;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+  }
+  #help-box h3 { margin: 0 0 16px; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; color: #fff; font-weight: 700; }
+  .help-section { margin-bottom: 16px; }
+  .help-section-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.45); margin-bottom: 8px; }
+  .help-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 0.5px solid rgba(255,255,255,0.06); }
+  .help-row:last-child { border-bottom: none; }
+  .help-key { background: rgba(255,255,255,0.1); border: 0.5px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 2px 8px; font-size: 12px; letter-spacing: 0.05em; white-space: nowrap; }
+  .help-label { color: rgba(255,255,255,0.7); }
+  .help-divider { border: none; border-top: 0.5px solid rgba(255,255,255,0.1); margin: 14px 0; }
+  #help-close { display: block; width: 100%; margin-top: 18px; padding: 8px; background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 4px; color: #e0e0e0; font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; cursor: pointer; }
+  #help-close:hover { background: rgba(255,255,255,0.13); }
+  #canvas-wrap { position: relative; display: inline-block; }
+</style>
+<div id="pong-wrap">
+  <h2 class="sr-only">Pickleball doubles Pong game with AI partners</h2>
+  <div id="canvas-wrap">
+    <canvas id="pong-canvas" width="704" height="320"></canvas>
+    <div id="help-overlay">
+      <div id="help-box">
+        <h3>&#127358; how to play</h3>
+        <div class="help-section">
+          <div class="help-section-title">left lower player</div>
+          <div class="help-row"><span class="help-label">move up</span><span class="help-key">W or A</span></div>
+          <div class="help-row"><span class="help-label">move down</span><span class="help-key">S or D</span></div>
+          <div class="help-row"><span class="help-label">left upper player</span><span class="help-key">AI partner</span></div>
+        </div>
+        <div class="help-section">
+          <div class="help-section-title">right lower player</div>
+          <div class="help-row"><span class="help-label">move up</span><span class="help-key">↑ or ←</span></div>
+          <div class="help-row"><span class="help-label">move down</span><span class="help-key">↓ or →</span></div>
+          <div class="help-row"><span class="help-label">right upper player</span><span class="help-key">AI partner</span></div>
+        </div>
+        <hr class="help-divider">
+        <div class="help-section">
+          <div class="help-section-title">game controls</div>
+          <div class="help-row"><span class="help-label">start / restart</span><span class="help-key">Space</span></div>
+          <div class="help-row"><span class="help-label">pause / resume</span><span class="help-key">Space or P</span></div>
+          <div class="help-row"><span class="help-label">rotate court</span><span class="help-key">button</span></div>
+          <div class="help-row"><span class="help-label">portrait player</span><span class="help-key">bottom</span></div>
+          <div class="help-row"><span class="help-label">close help</span><span class="help-key">Esc</span></div>
+        </div>
+        <hr class="help-divider">
+        <div class="help-section">
+          <div class="help-section-title">rules</div>
+          <div class="help-row"><span class="help-label">first to</span><span style="font-size:13px;">7 points wins</span></div>
+          <div class="help-row"><span class="help-label">edge hits</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">deflect at sharper angles</span></div>
+          <div class="help-row"><span class="help-label">ball speed</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">resets each serve</span></div>
+          <div class="help-row"><span class="help-label">serve delay</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">1 second</span></div>
+          <div class="help-row"><span class="help-label">serves</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">start cross-court</span></div>
+          <div class="help-row"><span class="help-label">court</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">20×44 pickleball ratio</span></div>
+          <div class="help-row"><span class="help-label">partners</span><span style="font-size:13px; color:rgba(255,255,255,0.55);">AI stays in upper lane</span></div>
+        </div>
+        <button id="help-close">got it</button>
+      </div>
+    </div>
+  </div>
+  <div id="pong-msg">press space or tap start to play</div>
+  <div id="pong-ui">
+    <button id="btn-start">start</button>
+    <button id="btn-pause">pause</button>
+    <button id="btn-mode">1 player</button>
+    <button id="btn-orient">portrait</button>
+    <button id="btn-help">? help</button>
+    <label id="speed-control" for="speed-slider">ball speed
+      <input id="speed-slider" type="range" min="25" max="100" value="100" step="5">
+      <span id="speed-readout">100%</span>
+    </label>
+    <span id="pong-info">W/S, A/D, or arrows — active player &nbsp;|&nbsp; partner/opponent = AI</span>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('pong-canvas');
+const ctx = canvas.getContext('2d');
+let W = canvas.width, H = canvas.height;
+const PADDLE_THICK = 10, PADDLE_LEN = 46, BALL_R = 6;
+const PADDLE_SPEED = 4.5;
+const AI_PARTNER_SPEED = 4.0;
+const SCORE_LIMIT = 7;
+const BASE_BALL_SPEED = 5.5;
+const MAX_BALL_SPEED = 14;
+const SERVE_DELAY_MS = 1000;
+const NO_POACH_BUFFER = 4;
+
+const msgEl = document.getElementById('pong-msg');
+const btnStart = document.getElementById('btn-start');
+const btnMode = document.getElementById('btn-mode');
+const btnPause = document.getElementById('btn-pause');
+const btnOrient = document.getElementById('btn-orient');
+const btnHelp = document.getElementById('btn-help');
+const infoEl = document.getElementById('pong-info');
+const overlay = document.getElementById('help-overlay');
+const helpClose = document.getElementById('help-close');
+const speedSlider = document.getElementById('speed-slider');
+const speedReadout = document.getElementById('speed-readout');
+
+let orientation = 'landscape';
+let vsAI = true, running = false, paused = false, serving = false, scores = [0, 0], keys = {}, anim = null;
+let ballSpeedScale = Number(speedSlider.value) / 100;
+let serveDir = 1, serveStartTime = 0;
+let ball, team0Human, team0Partner, team1Human, team1Partner;
+
+const courtGeometry = {
+  lengthFt: 44,
+  widthFt: 20,
+  kitchenDepthFt: 7,
+  sideInset: 28,
+  get isPortrait() { return orientation === 'portrait'; },
+  get playSize() { return this.isPortrait ? H : W; },
+  get moveSize() { return this.isPortrait ? W : H; },
+  get net() { return this.playSize / 2; },
+  get kitchenPx() { return this.playSize * (this.kitchenDepthFt / this.lengthFt); },
+  sideCoord(team) { return team === 0 ? this.sideInset : this.playSize - this.sideInset - PADDLE_THICK; },
+  frontCoord(team) { return team === 0 ? this.sideCoord(team) + PADDLE_THICK : this.sideCoord(team); },
+  lane(name) {
+    return name === 'partner'
+      ? { name, min: 0, max: this.moveSize / 2 }
+      : { name, min: this.moveSize / 2, max: this.moveSize };
+  },
+  scoreForPlayCoord(v) {
+    if (v < 0) return 1;
+    if (v > this.playSize) return 0;
+    return null;
+  }
+};
+
+function setCanvasForOrientation() {
+  if (orientation === 'portrait') { canvas.width = 320; canvas.height = 704; }
+  else { canvas.width = 704; canvas.height = 320; }
+  W = canvas.width; H = canvas.height;
+}
+function playCoordOfBall() { return courtGeometry.isPortrait ? ball.y : ball.x; }
+function moveCoordOfBall() { return courtGeometry.isPortrait ? ball.x : ball.y; }
+function setBallPlayCoord(v) { if (courtGeometry.isPortrait) ball.y = v; else ball.x = v; }
+function setBallMoveCoord(v) { if (courtGeometry.isPortrait) ball.x = v; else ball.y = v; }
+function playVelocity() { return courtGeometry.isPortrait ? ball.vy : ball.vx; }
+function moveVelocity() { return courtGeometry.isPortrait ? ball.vx : ball.vy; }
+function setPlayVelocity(v) { if (courtGeometry.isPortrait) ball.vy = v; else ball.vx = v; }
+function setMoveVelocity(v) { if (courtGeometry.isPortrait) ball.vx = v; else ball.vy = v; }
+function paddleRect(p) {
+  return courtGeometry.isPortrait
+    ? { x: p.move, y: p.play, w: PADDLE_LEN, h: PADDLE_THICK }
+    : { x: p.play, y: p.move, w: PADDLE_THICK, h: PADDLE_LEN };
+}
+function zoneCenter(zone) { return (zone.min + zone.max) / 2 - PADDLE_LEN / 2; }
+function clampToZone(v, zone) { return Math.max(zone.min, Math.min(zone.max - PADDLE_LEN, v)); }
+function paddleCenter(p) { return p.move + PADDLE_LEN / 2; }
+function allPaddles() { return [team0Partner, team0Human, team1Partner, team1Human]; }
+function teamPaddlesForDirection(v) { return v < 0 ? [team0Partner, team0Human] : [team1Partner, team1Human]; }
+function teamName(team) {
+  if (orientation === 'portrait') return team === 0 ? 'top' : 'bottom';
+  return team === 0 ? 'left' : 'right';
+}
+function updateInfoText() {
+  if (orientation === 'portrait') {
+    infoEl.textContent = 'W/S, A/D, or arrows — bottom player \u00a0|\u00a0 partner/opponent = AI';
+  } else {
+    infoEl.textContent = 'W/S, A/D, or arrows — left lower player \u00a0|\u00a0 partner/opponent = AI';
+  }
+}
+
+function launchBall(dir = 1, play = courtGeometry.playSize / 2, move = courtGeometry.moveSize / 2) {
+  const angle = Math.random() * 0.6 - 0.3;
+  const along = Math.cos(angle) * BASE_BALL_SPEED * dir;
+  const across = Math.sin(angle) * BASE_BALL_SPEED;
+  if (courtGeometry.isPortrait) return { x: move, y: play, vx: across, vy: along };
+  return { x: play, y: move, vx: along, vy: across };
+}
+function servingPaddleFor(dir = serveDir) {
+  // Serves begin from each team's primary/right-lane player.
+  // In portrait mode this keeps the human-controlled player on the bottom side.
+  return dir === 1 ? team0Human : team1Human;
+}
+function receivingPaddleFor(dir = serveDir) {
+  // Initial serves must go cross-court, so a right/lower-lane server
+  // aims at the diagonally opposite AI partner lane.
+  return dir === 1 ? team1Partner : team0Partner;
+}
+function servePosition(dir = serveDir) {
+  const p = servingPaddleFor(dir);
+  const play = dir === 1 ? courtGeometry.frontCoord(0) + BALL_R + 3 : courtGeometry.frontCoord(1) - BALL_R - 3;
+  const move = paddleCenter(p);
+  return { play, move };
+}
+function launchServeBall(dir = serveDir) {
+  const pos = servePosition(dir);
+  const receiver = receivingPaddleFor(dir);
+  const targetPlay = courtGeometry.frontCoord(receiver.team);
+  const targetMove = paddleCenter(receiver);
+  const playDistance = Math.max(1, Math.abs(targetPlay - pos.play));
+  const moveDistance = targetMove - pos.move;
+  const angle = Math.atan2(moveDistance, playDistance);
+  const along = Math.cos(angle) * BASE_BALL_SPEED * dir;
+  const across = Math.sin(angle) * BASE_BALL_SPEED;
+  if (courtGeometry.isPortrait) return { x: pos.move, y: pos.play, vx: across, vy: along };
+  return { x: pos.play, y: pos.move, vx: along, vy: across };
+}
+function makePaddle(team, laneName, isHuman, label) {
+  const zone = courtGeometry.lane(laneName);
+  return { team, laneName, zone, isHuman, label, play: courtGeometry.sideCoord(team), move: zoneCenter(zone) };
+}
+function initState() {
+  team0Partner = makePaddle(0, 'partner', false, 'team 0 AI partner');
+  team0Human   = makePaddle(0, 'human', !courtGeometry.isPortrait, 'team 0 human/AI');
+  team1Partner = makePaddle(1, 'partner', false, 'team 1 AI partner');
+  team1Human   = makePaddle(1, 'human', courtGeometry.isPortrait || !vsAI, 'team 1 human/AI');
+  ball = launchBall(Math.random() < 0.5 ? 1 : -1);
+}
+function rebuildForOrientation(keepScores = true) {
+  const oldScores = keepScores ? scores.slice() : [0, 0];
+  setCanvasForOrientation();
+  scores = oldScores;
+  initState();
+  serving = false;
+  paused = running ? true : false;
+  btnPause.textContent = paused ? 'resume' : 'pause';
+  btnOrient.textContent = orientation === 'portrait' ? 'landscape' : 'portrait';
+  updateInfoText();
+  msgEl.textContent = running ? `rotated — press resume` : 'press space or tap start to play';
+  draw();
+}
+function resetPlayers() { for (const p of allPaddles()) { p.zone = courtGeometry.lane(p.laneName); p.play = courtGeometry.sideCoord(p.team); p.move = zoneCenter(p.zone); } }
+function updateScoreMessage() { if (running && !paused && !serving) msgEl.textContent = `${teamName(0)} ${scores[0]}  —  ${teamName(1)} ${scores[1]}    first to ${SCORE_LIMIT}`; }
+function startServe(dir) {
+  serving = true; serveDir = dir; serveStartTime = performance.now();
+  ball = launchServeBall(dir);
+  msgEl.textContent = `cross-court serve incoming .   ${teamName(0)} ${scores[0]}  —  ${teamName(1)} ${scores[1]}`;
+}
+function resetRound(winner) {
+  scores[winner]++;
+  if (scores[winner] >= SCORE_LIMIT) {
+    running = false; paused = false; serving = false; btnPause.textContent = 'pause';
+    msgEl.textContent = `${teamName(winner)} wins ${scores[winner]}-${scores[1-winner]}! press space to restart`;
+    btnStart.textContent = 'restart'; draw(); return;
+  }
+  resetPlayers(); startServe(winner === 0 ? 1 : -1);
+}
+function predictInterceptMove(playLine) {
+  const pv = playVelocity();
+  if (pv === 0) return moveCoordOfBall();
+  const frames = (playLine - playCoordOfBall()) / (pv * Math.max(ballSpeedScale, 0.25));
+  if (frames < 0) return moveCoordOfBall();
+  let m = moveCoordOfBall() + moveVelocity() * ballSpeedScale * frames;
+  const playable = courtGeometry.moveSize - BALL_R * 2;
+  m = ((m - BALL_R) % (2 * playable) + 2 * playable) % (2 * playable);
+  if (m > playable) m = 2 * playable - m;
+  return m + BALL_R;
+}
+function moveToward(p, targetMove, speed) {
+  const targetStart = targetMove - PADDLE_LEN / 2;
+  const diff = targetStart - p.move;
+  if (Math.abs(diff) > 2) p.move += Math.sign(diff) * Math.min(Math.abs(diff), speed);
+  p.move = clampToZone(p.move, p.zone);
+}
+function updateAIPaddle(p) {
+  const pv = playVelocity();
+  const comingToward = (p.team === 0 && pv < 0) || (p.team === 1 && pv > 0);
+  let targetMove = p.zone.min + (p.zone.max - p.zone.min) / 2;
+  if (comingToward && !serving) {
+    const predicted = predictInterceptMove(courtGeometry.frontCoord(p.team));
+    const ownsBall = predicted >= p.zone.min + NO_POACH_BUFFER && predicted <= p.zone.max - NO_POACH_BUFFER;
+    if (ownsBall) targetMove = predicted;
+  }
+  moveToward(p, targetMove, AI_PARTNER_SPEED);
+}
+function updatePaddles() {
+  const primaryHuman = courtGeometry.isPortrait ? team1Human : team0Human;
+  const secondaryHuman = courtGeometry.isPortrait ? team0Human : team1Human;
+
+  primaryHuman.isHuman = true;
+  const moveNegative = keys['w'] || keys['W'] || keys['a'] || keys['A'] || keys['ArrowUp'] || keys['ArrowLeft'];
+  const movePositive = keys['s'] || keys['S'] || keys['d'] || keys['D'] || keys['ArrowDown'] || keys['ArrowRight'];
+  if (moveNegative) primaryHuman.move = clampToZone(primaryHuman.move - PADDLE_SPEED, primaryHuman.zone);
+  if (movePositive) primaryHuman.move = clampToZone(primaryHuman.move + PADDLE_SPEED, primaryHuman.zone);
+
+  // The user controls one player at a time; the other primary player remains AI controlled.
+  secondaryHuman.isHuman = false;
+  updateAIPaddle(secondaryHuman);
+
+  updateAIPaddle(team0Partner);
+  updateAIPaddle(team1Partner);
+}
+function updateServe() {
+  ball = launchServeBall(serveDir);
+  const elapsed = performance.now() - serveStartTime;
+  const dots = '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1));
+  msgEl.textContent = `cross-court serve incoming ${dots}   ${teamName(0)} ${scores[0]}  —  ${teamName(1)} ${scores[1]}`;
+  if (elapsed >= SERVE_DELAY_MS) { serving = false; ball = launchServeBall(serveDir); updateScoreMessage(); }
+}
+function checkPaddleHit(p) {
+  const front = courtGeometry.frontCoord(p.team);
+  const pv = playVelocity();
+  const movingToward = p.team === 0 ? pv < 0 : pv > 0;
+  if (!movingToward) return false;
+  const edge = p.team === 0 ? playCoordOfBall() - BALL_R : playCoordOfBall() + BALL_R;
+  const playOverlap = p.team === 0 ? edge <= front && edge >= front - 8 : edge >= front && edge <= front + 8;
+  const moveOverlap = moveCoordOfBall() >= p.move - 2 && moveCoordOfBall() <= p.move + PADDLE_LEN + 2;
+  if (!playOverlap || !moveOverlap) return false;
+  const offset = moveCoordOfBall() - paddleCenter(p);
+  setPlayVelocity((p.team === 0 ? Math.abs(pv) : -Math.abs(pv)) * 1.045);
+  setMoveVelocity(moveVelocity() + offset * 0.12);
+  setBallPlayCoord(p.team === 0 ? front + BALL_R : front - BALL_R);
+  return true;
+}
+function update() {
+  updatePaddles();
+  if (serving) { updateServe(); return; }
+  ball.x += ball.vx * ballSpeedScale; ball.y += ball.vy * ballSpeedScale;
+  if (moveCoordOfBall() - BALL_R <= 0) { setBallMoveCoord(BALL_R); setMoveVelocity(Math.abs(moveVelocity())); }
+  if (moveCoordOfBall() + BALL_R >= courtGeometry.moveSize) { setBallMoveCoord(courtGeometry.moveSize - BALL_R); setMoveVelocity(-Math.abs(moveVelocity())); }
+  for (const p of teamPaddlesForDirection(playVelocity())) if (checkPaddleHit(p)) break;
+  const s = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  if (s > MAX_BALL_SPEED) { ball.vx = ball.vx / s * MAX_BALL_SPEED; ball.vy = ball.vy / s * MAX_BALL_SPEED; }
+  const winner = courtGeometry.scoreForPlayCoord(playCoordOfBall());
+  if (winner !== null) resetRound(winner);
+}
+function currentServeDots() { if (!serving) return ''; const elapsed = performance.now() - serveStartTime; return '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1)); }
+
+function drawPickleballCourt() {
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)'; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.strokeRect(1, 1, W - 2, H - 2);
+  const net = courtGeometry.net, k = courtGeometry.kitchenPx;
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.setLineDash([6, 7]); ctx.beginPath();
+  if (courtGeometry.isPortrait) { ctx.moveTo(0, net); ctx.lineTo(W, net); }
+  else { ctx.moveTo(net, 0); ctx.lineTo(net, H); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.42)'; ctx.lineWidth = 1.5; ctx.beginPath();
+  if (courtGeometry.isPortrait) {
+    ctx.moveTo(0, net - k); ctx.lineTo(W, net - k); ctx.moveTo(0, net + k); ctx.lineTo(W, net + k);
+    ctx.moveTo(W/2, 0); ctx.lineTo(W/2, net - k); ctx.moveTo(W/2, net + k); ctx.lineTo(W/2, H);
+  } else {
+    ctx.moveTo(net - k, 0); ctx.lineTo(net - k, H); ctx.moveTo(net + k, 0); ctx.lineTo(net + k, H);
+    ctx.moveTo(0, H/2); ctx.lineTo(net - k, H/2); ctx.moveTo(net + k, H/2); ctx.lineTo(W, H/2);
+  }
+  ctx.stroke();
+  ctx.setLineDash([3, 8]); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath();
+  if (courtGeometry.isPortrait) { ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); }
+  else { ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  if (courtGeometry.isPortrait) { ctx.fillRect(0, net - k, W, k); ctx.fillRect(0, net, W, k); }
+  else { ctx.fillRect(net - k, 0, k, H); ctx.fillRect(net, 0, k, H); }
+  ctx.font = '10px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  if (courtGeometry.isPortrait) {
+    ctx.fillText('kitchen', W - 38, net - k/2 + 3); ctx.fillText('kitchen', W - 38, net + k/2 + 3);
+    ctx.fillText('partner lane', W/4, 16); ctx.fillText('player lane', W*3/4, H - 12);
+  } else {
+    ctx.fillText('kitchen', net - k/2, H - 10); ctx.fillText('kitchen', net + k/2, H - 10);
+    ctx.fillText('AI partner lane', W/2, 16); ctx.fillText('human / lower lane', W/2, H - 22);
+  }
+}
+function drawPaddle(p) {
+  const r = paddleRect(p);
+  ctx.fillStyle = p.isHuman ? '#e8e8e8' : 'rgba(232,232,232,0.72)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+  if (!p.isHuman) {
+    ctx.fillStyle = 'rgba(10,10,10,0.55)'; ctx.font = '8px "Courier New"'; ctx.textAlign = 'center';
+    ctx.fillText('AI', r.x + r.w / 2, r.y + r.h / 2 + 3);
+  }
+}
+function draw() {
+  ctx.clearRect(0, 0, W, H); drawPickleballCourt();
+  for (const p of allPaddles()) drawPaddle(p);
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI*2); ctx.fill();
+  ctx.font = 'bold 28px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
+  if (courtGeometry.isPortrait) { ctx.fillText(scores[0], W/2 - 35, 48); ctx.fillText(scores[1], W/2 + 35, H - 30); }
+  else { ctx.fillText(scores[0], W/2 - 60, 48); ctx.fillText(scores[1], W/2 + 60, 48); }
+  if (serving) {
+    ctx.font = 'bold 42px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.fillText(currentServeDots(), W/2, H/2 - 24);
+    ctx.font = '13px "Courier New"'; ctx.fillStyle = 'rgba(255,255,255,0.52)'; ctx.fillText(`${teamName(serveDir === 1 ? 0 : 1)} cross-court serve`, W/2, H/2 + 8);
+  }
+  if (!running || paused) { ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, H); }
+}
+function loop() { if (!running || paused) { anim = null; return; } update(); draw(); anim = requestAnimationFrame(loop); }
+function ensureLoop() { if (!anim && running && !paused) anim = requestAnimationFrame(loop); }
+function startGame() {
+  if (anim) cancelAnimationFrame(anim); anim = null;
+  scores = [0, 0]; running = true; paused = false; serving = false;
+  msgEl.textContent = ''; btnStart.textContent = 'restart'; btnPause.textContent = 'pause';
+  initState(); startServe(Math.random() < 0.5 ? 1 : -1); ensureLoop();
+}
+function togglePause() {
+  if (!running) return;
+  paused = !paused; btnPause.textContent = paused ? 'resume' : 'pause';
+  if (paused) { if (anim) cancelAnimationFrame(anim); anim = null; msgEl.textContent = `paused — ${teamName(0)} ${scores[0]}  —  ${teamName(1)} ${scores[1]}`; draw(); }
+  else { if (serving) serveStartTime = performance.now(); else updateScoreMessage(); ensureLoop(); }
+}
+function toggleOrientation() {
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  orientation = orientation === 'landscape' ? 'portrait' : 'landscape';
+  rebuildForOrientation(true);
+}
+function showHelp() { if (running && !paused) togglePause(); overlay.classList.add('visible'); }
+function hideHelp() { overlay.classList.remove('visible'); }
+
+btnStart.addEventListener('click', startGame);
+btnPause.addEventListener('click', togglePause);
+btnOrient.addEventListener('click', toggleOrientation);
+btnHelp.addEventListener('click', showHelp);
+helpClose.addEventListener('click', hideHelp);
+overlay.addEventListener('click', e => { if (e.target === overlay) hideHelp(); });
+speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlider.value) / 100; speedReadout.textContent = `${speedSlider.value}%`; });
+btnMode.addEventListener('click', () => {
+  vsAI = true;
+  btnMode.textContent = '1 player';
+  updateInfoText();
+  draw();
+});
+
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (!overlay.classList.contains('visible')) {
+      if (running) togglePause();
+      else startGame();
+    }
+  }
+  if (e.key === 'p' || e.key === 'P') togglePause();
+  if (e.key === 'Escape') hideHelp();
+  if (e.key === '?' || e.key === 'h') showHelp();
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+setCanvasForOrientation(); initState(); updateInfoText(); draw();
+</script>
