@@ -145,6 +145,9 @@ const DEFAULT_MOVEMENT_SKILL = {
   depthMaxSpeed: 3.1
 };
 const PADDLE_FRICTION = 0.84;
+const AI_MOVE_SETTLE_PX = 8;
+const AI_DEPTH_SETTLE_PX = 5;
+const AI_SETTLE_FRICTION = 0.62;
 const SCORE_LIMIT = 7;
 const BASE_BALL_SPEED = 5.5;
 const MAX_BALL_SPEED = 14;
@@ -302,17 +305,21 @@ class Player {
     const cappedSpeed = Math.min(speed, this.movementSkill.moveMaxSpeed);
     const targetStart = targetMove - PADDLE_LEN / 2;
     const diff = targetStart - this.move;
-    if (Math.abs(diff) > 2) this.vMove = Math.sign(diff) * Math.min(Math.abs(diff), cappedSpeed);
-    else this.vMove = 0;
-    this.applyMoveVelocity();
+    if (Math.abs(diff) > AI_MOVE_SETTLE_PX) {
+      this.vMove += Math.sign(diff) * this.movementSkill.moveAcceleration;
+      this.vMove = Math.max(-cappedSpeed, Math.min(cappedSpeed, this.vMove));
+    }
+    this.applyMoveVelocity(Math.abs(diff) <= AI_MOVE_SETTLE_PX ? AI_SETTLE_FRICTION : PADDLE_FRICTION);
   }
 
   movePlayToward(targetPlay, speed) {
     const cappedSpeed = Math.min(speed, this.movementSkill.depthMaxSpeed);
     const diff = targetPlay - this.play;
-    if (Math.abs(diff) > 1) this.vPlay = Math.sign(diff) * Math.min(Math.abs(diff), cappedSpeed);
-    else this.vPlay = 0;
-    this.applyPlayVelocity();
+    if (Math.abs(diff) > AI_DEPTH_SETTLE_PX) {
+      this.vPlay += Math.sign(diff) * this.movementSkill.depthAcceleration;
+      this.vPlay = Math.max(-cappedSpeed, Math.min(cappedSpeed, this.vPlay));
+    }
+    this.applyPlayVelocity(Math.abs(diff) <= AI_DEPTH_SETTLE_PX ? AI_SETTLE_FRICTION : PADDLE_FRICTION);
   }
 
   updateAIPosition({ targetMove, targetPlay }) {
@@ -675,6 +682,11 @@ class RallyState {
     return !!thirdHit && thirdHit.team === this.servingTeamAtStart;
   }
 
+  receivingTeamReturnComplete() {
+    const secondHit = this.events.find(hit => hit.number === 2);
+    return !!secondHit && secondHit.team !== this.servingTeamAtStart;
+  }
+
   snapshot() {
     return {
       hitCount: this.hitCount,
@@ -777,15 +789,23 @@ function kitchenReadyPlayCoord(player) {
 }
 function aiFormationPlayCoord(player) {
   const server = currentServingPlayer();
-  const servingTeamPartner = rallyState
+  const servingTeamReady = rallyState
     && rallyState.servingTeamAtStart === player.team
+    && rallyState.servingTeamThirdShotComplete();
+  const receivingPlayerOppositeServer = rallyState
     && server
-    && player !== server;
-  const servingTeamServerReady = rallyState
-    && rallyState.servingTeamThirdShotComplete()
+    && player.isHuman === false
+    && player.team !== rallyState.servingTeamAtStart
+    && player.laneName === server.laneName;
+  const receivingPlayerDiagonalReady = rallyState
     && server
-    && player === server;
-  return servingTeamPartner || servingTeamServerReady ? kitchenReadyPlayCoord(player) : player.homePlayCoord();
+    && rallyState.receivingTeamReturnComplete()
+    && player.isHuman === false
+    && player.team !== rallyState.servingTeamAtStart
+    && player.laneName !== server.laneName;
+  return servingTeamReady || receivingPlayerOppositeServer || receivingPlayerDiagonalReady
+    ? kitchenReadyPlayCoord(player)
+    : player.homePlayCoord();
 }
 function updatePlayerLegend() {
   if (!playerLegendEl || !team0Partner || !team0Human || !team1Partner || !team1Human) return;
