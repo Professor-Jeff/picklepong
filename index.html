@@ -22,8 +22,9 @@
   #speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
   #speed-slider { width: 130px; cursor: pointer; }
   #speed-readout { min-width: 34px; display: inline-block; text-align: right; }
-  #speedup-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #speedup-control, #human-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
   #speedup-toggle { cursor: pointer; }
+  #human-toggle { cursor: pointer; }
   #pong-msg { font-size: 13px; color: var(--color-text-secondary); letter-spacing: 0.08em; min-height: 20px; margin-top: 6px; }
 
   #help-overlay {
@@ -129,6 +130,10 @@
       <input id="speedup-toggle" type="checkbox">
       progressive speedups
     </label>
+    <label id="human-control" for="human-toggle">
+      <input id="human-toggle" type="checkbox" checked>
+      human control
+    </label>
   </div>
 </div>
 <script>
@@ -171,6 +176,7 @@ const helpClose = document.getElementById('help-close');
 const speedSlider = document.getElementById('speed-slider');
 const speedReadout = document.getElementById('speed-readout');
 const speedupToggle = document.getElementById('speedup-toggle');
+const humanToggle = document.getElementById('human-toggle');
 const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
@@ -181,7 +187,7 @@ const rallyLastNoteEl = document.getElementById('rally-last-note');
 const playerLegendEl = document.getElementById('player-legend');
 
 let orientation = 'portrait';
-let vsAI = true, running = false, paused = false, serving = false, keys = {}, anim = null;
+let humanEnabled = humanToggle.checked, running = false, paused = false, serving = false, keys = {}, anim = null;
 let scoreKeeper;
 let rallyState;
 let ballSpeedScale = Number(speedSlider.value) / 100;
@@ -851,11 +857,20 @@ function makePaddle(team, laneName, isHuman, label) {
   const color = isHuman ? PLAYER_COLORS.human : defaultPlayerColor(team, laneName);
   return new Player({ team, laneName, isHuman, label, color });
 }
+function humanControlledPlayer() {
+  return courtGeometry.isPortrait ? team1Human : team0Human;
+}
+function syncHumanMode() {
+  if (!team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  for (const p of allPaddles()) p.setHuman(false);
+  if (humanEnabled) humanControlledPlayer().setHuman(true);
+  updateScoreboard();
+}
 function initState() {
   team0Partner = makePaddle(0, 'partner', false, 'team 0 AI partner');
-  team0Human   = makePaddle(0, 'human', !courtGeometry.isPortrait, 'team 0 human/AI');
+  team0Human   = makePaddle(0, 'human', humanEnabled && !courtGeometry.isPortrait, 'team 0 human/AI');
   team1Partner = makePaddle(1, 'partner', false, 'team 1 AI partner');
-  team1Human   = makePaddle(1, 'human', courtGeometry.isPortrait || !vsAI, 'team 1 human/AI');
+  team1Human   = makePaddle(1, 'human', humanEnabled && courtGeometry.isPortrait, 'team 1 human/AI');
   assignServiceTurnsForTeam(scoreKeeper ? scoreKeeper.servingTeam : (courtGeometry.isPortrait ? 1 : 0));
   ball = launchBall(Math.random() < 0.5 ? 1 : -1);
 }
@@ -905,7 +920,15 @@ function accelerateHumanPaddle(p, moveDirection, playDirection) { p.accelerateHu
 function moveToward(p, targetMove, speed) { p.moveToward(targetMove, speed); }
 function updateAIPaddle(p) { p.updateAI(); }
 function updatePaddles() {
-  const primaryHuman = courtGeometry.isPortrait ? team1Human : team0Human;
+  if (!humanEnabled) {
+    for (const p of allPaddles()) {
+      p.setHuman(false);
+      updateAIPaddle(p);
+    }
+    return;
+  }
+
+  const primaryHuman = humanControlledPlayer();
   const secondaryHuman = courtGeometry.isPortrait ? team0Human : team1Human;
 
   primaryHuman.setHuman(true);
@@ -1037,6 +1060,7 @@ helpClose.addEventListener('click', hideHelp);
 overlay.addEventListener('click', e => { if (e.target === overlay) hideHelp(); });
 speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlider.value) / 100; speedReadout.textContent = `${speedSlider.value}%`; });
 speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupToggle.checked; });
+humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; syncHumanMode(); });
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === ' ') {
