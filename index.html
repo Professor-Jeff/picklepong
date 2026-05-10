@@ -5,8 +5,7 @@
   #game-layout { display: flex; align-items: flex-start; justify-content: center; gap: 14px; flex-wrap: wrap; }
   #score-panel { min-width: 135px; padding: 12px 14px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: rgba(255,255,255,0.035); color: var(--color-text-primary); box-sizing: border-box; }
   #score-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); margin-bottom: 10px; }
-  .score-row { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding: 7px 0; border-top: 0.5px solid rgba(255,255,255,0.10); }
-  .score-row:first-of-type { border-top: none; }
+  .court-score { position: absolute; z-index: 3; display: flex; gap: 8px; align-items: baseline; color: var(--color-text-primary); pointer-events: none; }
   .score-label { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.06em; }
   .score-value { font-size: 30px; font-weight: 700; line-height: 1; color: var(--color-text-primary); }
   #score-note { margin-top: 10px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.8; }
@@ -25,6 +24,9 @@
   #speedup-control, #human-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
   #speedup-toggle { cursor: pointer; }
   #human-toggle { cursor: pointer; }
+  #ai-speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #ai-speed-slider { width: 130px; cursor: pointer; }
+  #ai-speed-readout { min-width: 34px; display: inline-block; text-align: right; }
   #pong-msg { font-size: 13px; color: var(--color-text-secondary); letter-spacing: 0.08em; min-height: 20px; margin-top: 6px; }
 
   #help-overlay {
@@ -58,11 +60,21 @@
   #help-close { display: block; width: 100%; margin-top: 18px; padding: 8px; background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 4px; color: #e0e0e0; font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; cursor: pointer; }
   #help-close:hover { background: rgba(255,255,255,0.13); }
   #canvas-wrap { position: relative; display: inline-block; }
+  #canvas-wrap.portrait { margin-left: 72px; }
+  #canvas-wrap.portrait .court-score { left: -68px; min-width: 56px; flex-direction: column; align-items: flex-end; gap: 2px; transform: translateY(-50%); }
+  #canvas-wrap.portrait .court-score-team0 { top: 25%; }
+  #canvas-wrap.portrait .court-score-team1 { top: 75%; }
+  #canvas-wrap.landscape { margin-top: 44px; }
+  #canvas-wrap.landscape .court-score { top: -42px; min-width: 82px; justify-content: center; transform: translateX(-50%); }
+  #canvas-wrap.landscape .court-score-team0 { left: 25%; }
+  #canvas-wrap.landscape .court-score-team1 { left: 75%; }
 </style>
 <div id="pong-wrap">
   <h2 class="sr-only">Pickleball doubles Pong game with AI partners</h2>
   <div id="game-layout">
     <div id="canvas-wrap">
+    <div class="court-score court-score-team0"><span id="score-team0-label" class="score-label">top</span><span id="score-team0" class="score-value">0</span></div>
+    <div class="court-score court-score-team1"><span id="score-team1-label" class="score-label">bottom</span><span id="score-team1" class="score-value">0</span></div>
     <canvas id="pong-canvas" width="320" height="704"></canvas>
     <div id="help-overlay">
       <div id="help-box">
@@ -107,9 +119,7 @@
     </div>
     </div>
     <div id="score-panel" aria-live="polite">
-      <div id="score-title">score</div>
-      <div class="score-row"><span id="score-team0-label" class="score-label">top</span><span id="score-team0" class="score-value">0</span></div>
-      <div class="score-row"><span id="score-team1-label" class="score-label">bottom</span><span id="score-team1" class="score-value">0</span></div>
+      <div id="score-title">status</div>
       <div id="score-note">serve 0-0-2</div>
       <div id="rally-hit-note">rally hits 0</div>
       <div id="rally-last-note">last rally 0 · max 0</div>
@@ -127,18 +137,23 @@
       <span id="speed-readout">100%</span>
     </label>
     <label id="speedup-control" for="speedup-toggle">
-      <input id="speedup-toggle" type="checkbox">
+      <input id="speedup-toggle" type="checkbox" checked>
       progressive speedups
     </label>
     <label id="human-control" for="human-toggle">
-      <input id="human-toggle" type="checkbox" checked>
+      <input id="human-toggle" type="checkbox">
       human control
+    </label>
+    <label id="ai-speed-control" for="ai-speed-slider">AI speed
+      <input id="ai-speed-slider" type="range" min="40" max="120" value="50" step="5">
+      <span id="ai-speed-readout">50%</span>
     </label>
   </div>
 </div>
 <script>
 const canvas = document.getElementById('pong-canvas');
 const ctx = canvas.getContext('2d');
+const canvasWrap = document.getElementById('canvas-wrap');
 let W = canvas.width, H = canvas.height;
 const PADDLE_THICK = 10, PADDLE_LEN = 46, BALL_R = 6;
 // Inertia tuning: human paddles accelerate while a key is held,
@@ -149,6 +164,14 @@ const DEFAULT_MOVEMENT_SKILL = {
   depthAcceleration: 0.75,
   depthMaxSpeed: 3.1
 };
+function scaledMovementSkill(scale) {
+  return {
+    moveAcceleration: DEFAULT_MOVEMENT_SKILL.moveAcceleration * scale,
+    moveMaxSpeed: DEFAULT_MOVEMENT_SKILL.moveMaxSpeed * scale,
+    depthAcceleration: DEFAULT_MOVEMENT_SKILL.depthAcceleration * scale,
+    depthMaxSpeed: DEFAULT_MOVEMENT_SKILL.depthMaxSpeed * scale
+  };
+}
 const PADDLE_FRICTION = 0.84;
 const AI_MOVE_SETTLE_PX = 8;
 const AI_DEPTH_SETTLE_PX = 5;
@@ -177,6 +200,8 @@ const speedSlider = document.getElementById('speed-slider');
 const speedReadout = document.getElementById('speed-readout');
 const speedupToggle = document.getElementById('speedup-toggle');
 const humanToggle = document.getElementById('human-toggle');
+const aiSpeedSlider = document.getElementById('ai-speed-slider');
+const aiSpeedReadout = document.getElementById('ai-speed-readout');
 const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
@@ -191,9 +216,12 @@ let humanEnabled = humanToggle.checked, running = false, paused = false, serving
 let scoreKeeper;
 let rallyState;
 let ballSpeedScale = Number(speedSlider.value) / 100;
+let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0;
 let ball, team0Human, team0Partner, team1Human, team1Partner;
+speedReadout.textContent = `${speedSlider.value}%`;
+aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
 
 const courtGeometry = {
   lengthFt: 44,
@@ -221,15 +249,16 @@ const courtGeometry = {
 };
 
 class Player {
-  constructor({ team, laneName, isHuman, label, color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
+  constructor({ team, roleLaneName, positionLaneName = roleLaneName, isHuman, label, color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
     this.team = team;
-    this.laneName = laneName;
+    this.roleLaneName = roleLaneName;
+    this.positionLaneName = positionLaneName;
     this.isHuman = isHuman;
     this.label = label;
     this.color = color;
     this.movementSkill = { ...movementSkill };
     this.serviceTurn = null;
-    this.zone = courtGeometry.lane(laneName);
+    this.zone = courtGeometry.lane(positionLaneName);
     this.play = courtGeometry.sideCoord(team);
     this.move = zoneCenter(this.zone);
     this.vMove = 0;
@@ -239,7 +268,13 @@ class Player {
   setHuman(isHuman) {
     this.isHuman = isHuman;
     if (isHuman) this.color = PLAYER_COLORS.human;
-    else this.color = defaultPlayerColor(this.team, this.laneName);
+    else this.color = defaultPlayerColor(this.team, this.roleLaneName);
+    this.movementSkill = isHuman ? { ...DEFAULT_MOVEMENT_SKILL } : scaledMovementSkill(aiMovementScale);
+  }
+
+  setPositionLane(positionLaneName) {
+    this.positionLaneName = positionLaneName;
+    this.zone = courtGeometry.lane(positionLaneName);
   }
 
   setServiceTurn(turnNumber) {
@@ -250,12 +285,18 @@ class Player {
     this.serviceTurn = null;
   }
 
-  reset() {
-    this.zone = courtGeometry.lane(this.laneName);
-    this.play = courtGeometry.sideCoord(this.team);
-    this.move = zoneCenter(this.zone);
-    this.vMove = 0;
-    this.vPlay = 0;
+  reset({ snapMove = true, snapPlay = true } = {}) {
+    this.setPositionLane(this.positionLaneName);
+    if (snapPlay) {
+      this.play = courtGeometry.sideCoord(this.team);
+      this.vPlay = 0;
+    }
+    if (snapMove) {
+      this.move = zoneCenter(this.zone);
+      this.vMove = 0;
+    } else {
+      this.move = clampToZone(this.move, this.zone);
+    }
   }
 
   rect() {
@@ -543,6 +584,10 @@ class ScoreKeeper {
   }
 
   servingLaneName(team = this.servingTeam) {
+    if (team === this.servingTeam) {
+      const server = activeServerForTeam(team);
+      if (server) return server.positionLaneName;
+    }
     const firstServerLane = this.laneOnRightAsFacingNet(team);
     if (this.openingServerException && team === this.servingTeam) return firstServerLane;
     return this.serverNumber === 1 ? firstServerLane : this.oppositeLane(firstServerLane);
@@ -672,7 +717,8 @@ class RallyState {
       number: this.hitCount + 1,
       type,
       team: player.team,
-      laneName: player.laneName,
+      roleLaneName: player.roleLaneName,
+      positionLaneName: player.positionLaneName,
       isHuman: player.isHuman,
       label: player.label
     };
@@ -711,6 +757,8 @@ class RallyState {
 function setCanvasForOrientation() {
   if (orientation === 'portrait') { canvas.width = 320; canvas.height = 704; }
   else { canvas.width = 704; canvas.height = 320; }
+  canvasWrap.classList.toggle('portrait', orientation === 'portrait');
+  canvasWrap.classList.toggle('landscape', orientation === 'landscape');
   W = canvas.width; H = canvas.height;
 }
 function playCoordOfBall() { return ball.playCoord(); }
@@ -763,12 +811,29 @@ function updateRallyHitReadout() {
 }
 function playerDisplayName(p) {
   const role = p.isHuman ? 'human' : 'AI';
-  const lane = p.laneName === 'human' ? 'main' : 'partner';
+  const lane = p.roleLaneName === 'human' ? 'main' : 'partner';
   return `${teamName(p.team)} ${lane} ${role}`;
 }
-function playerForTeamAndLane(team, laneName) {
-  if (team === 0) return laneName === 'human' ? team0Human : team0Partner;
-  return laneName === 'human' ? team1Human : team1Partner;
+function playerForTeamAndRole(team, roleLaneName) {
+  if (team === 0) return roleLaneName === 'human' ? team0Human : team0Partner;
+  return roleLaneName === 'human' ? team1Human : team1Partner;
+}
+function playerForTeamAndPosition(team, positionLaneName) {
+  return allPaddles().find(p => p.team === team && p.positionLaneName === positionLaneName);
+}
+function teamPlayers(team) {
+  return allPaddles().filter(p => p.team === team);
+}
+function activeServerForTeam(team = scoreKeeper.servingTeam) {
+  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
+  return teamPlayers(team).find(p => p.serviceTurn === scoreKeeper.serverNumber) || null;
+}
+function swapTeamPositionLanes(team) {
+  const players = teamPlayers(team);
+  if (players.length !== 2) return;
+  const firstLane = players[0].positionLaneName;
+  players[0].setPositionLane(players[1].positionLaneName);
+  players[1].setPositionLane(firstLane);
 }
 function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return;
@@ -778,15 +843,15 @@ function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   if (scoreKeeper.openingServerException && team === scoreKeeper.servingTeam) {
     // Opening pickleball exception: the right-side player serves as server #2,
     // and a fault causes immediate side-out instead of giving the teammate a serve.
-    playerForTeamAndLane(team, firstServerLane).setServiceTurn(2);
+    playerForTeamAndRole(team, firstServerLane).setServiceTurn(2);
     return;
   }
-  playerForTeamAndLane(team, firstServerLane).setServiceTurn(1);
-  playerForTeamAndLane(team, secondServerLane).setServiceTurn(2);
+  playerForTeamAndRole(team, firstServerLane).setServiceTurn(1);
+  playerForTeamAndRole(team, secondServerLane).setServiceTurn(2);
 }
 function currentServingPlayer() {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
-  return playerForTeamAndLane(scoreKeeper.servingTeam, scoreKeeper.servingLaneName());
+  return activeServerForTeam(scoreKeeper.servingTeam);
 }
 function kitchenReadyPlayCoord(player) {
   return player.team === 0
@@ -802,13 +867,13 @@ function aiFormationPlayCoord(player) {
     && server
     && player.isHuman === false
     && player.team !== rallyState.servingTeamAtStart
-    && player.laneName === server.laneName;
+    && player.positionLaneName === server.positionLaneName;
   const receivingPlayerDiagonalReady = rallyState
     && server
     && rallyState.receivingTeamReturnComplete()
     && player.isHuman === false
     && player.team !== rallyState.servingTeamAtStart
-    && player.laneName !== server.laneName;
+    && player.positionLaneName !== server.positionLaneName;
   return servingTeamReady || receivingPlayerOppositeServer || receivingPlayerDiagonalReady
     ? kitchenReadyPlayCoord(player)
     : player.homePlayCoord();
@@ -828,15 +893,13 @@ function launchBall(dir = 1, play = courtGeometry.playSize / 2, move = courtGeom
 function servingPaddleFor(dir = serveDir) {
   const team = dir === 1 ? 0 : 1;
   const serverLane = scoreKeeper ? scoreKeeper.servingLaneName() : 'human';
-  if (team === 0) return serverLane === 'human' ? team0Human : team0Partner;
-  return serverLane === 'human' ? team1Human : team1Partner;
+  return playerForTeamAndPosition(team, serverLane);
 }
 function receivingPaddleFor(dir = serveDir) {
   // Serve cross-court into the opposite lane on the receiving side.
   const team = dir === 1 ? 0 : 1;
   const serverLane = scoreKeeper ? scoreKeeper.servingLaneName() : 'human';
-  if (team === 0) return serverLane === 'human' ? team1Partner : team1Human;
-  return serverLane === 'human' ? team0Partner : team0Human;
+  return playerForTeamAndPosition(1 - team, scoreKeeper.oppositeLane(serverLane));
 }
 function servePosition(dir = serveDir) {
   const p = servingPaddleFor(dir);
@@ -853,9 +916,10 @@ function defaultPlayerColor(team, laneName) {
   if (team === 1 && laneName === 'partner') return PLAYER_COLORS.team1Partner;
   return PLAYER_COLORS.team1Secondary;
 }
-function makePaddle(team, laneName, isHuman, label) {
-  const color = isHuman ? PLAYER_COLORS.human : defaultPlayerColor(team, laneName);
-  return new Player({ team, laneName, isHuman, label, color });
+function makePaddle(team, roleLaneName, isHuman, label) {
+  const color = isHuman ? PLAYER_COLORS.human : defaultPlayerColor(team, roleLaneName);
+  const movementSkill = isHuman ? DEFAULT_MOVEMENT_SKILL : scaledMovementSkill(aiMovementScale);
+  return new Player({ team, roleLaneName, isHuman, label, color, movementSkill });
 }
 function humanControlledPlayer() {
   return courtGeometry.isPortrait ? team1Human : team0Human;
@@ -865,6 +929,14 @@ function syncHumanMode() {
   for (const p of allPaddles()) p.setHuman(false);
   if (humanEnabled) humanControlledPlayer().setHuman(true);
   updateScoreboard();
+}
+function syncAISpeed() {
+  aiMovementScale = Number(aiSpeedSlider.value) / 100;
+  aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
+  if (!team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  for (const p of allPaddles()) {
+    if (!p.isHuman) p.movementSkill = scaledMovementSkill(aiMovementScale);
+  }
 }
 function initState() {
   team0Partner = makePaddle(0, 'partner', false, 'team 0 AI partner');
@@ -888,8 +960,8 @@ function rebuildForOrientation(keepScores = true) {
   msgEl.textContent = running ? `rotated — press resume` : 'press space or tap start to play';
   draw();
 }
-function resetPlayers() {
-  for (const p of allPaddles()) p.reset();
+function resetPlayers({ animateTeams = [] } = {}) {
+  for (const p of allPaddles()) p.reset({ snapMove: !animateTeams.includes(p.team), snapPlay: !animateTeams.includes(p.team) });
 }
 function updateScoreMessage() { updateScoreboard(); if (running && !paused && !serving) msgEl.textContent = scoreKeeper.statusText(); }
 function startServe(dir) {
@@ -902,12 +974,13 @@ function resetRound(winner) {
   rallyState.finishRally();
   const result = scoreKeeper.recordRallyWinner(winner);
   assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+  if (result.pointScored) swapTeamPositionLanes(scoreKeeper.servingTeam);
   if (result.gameOver) {
     running = false; paused = false; serving = false; btnPause.textContent = 'pause';
     msgEl.textContent = scoreKeeper.winText(winner);
     btnStart.textContent = 'restart'; draw(); return;
   }
-  resetPlayers();
+  resetPlayers({ animateTeams: result.pointScored ? [scoreKeeper.servingTeam] : [] });
   msgEl.textContent = scoreKeeper.rallyText(result);
   startServe(scoreKeeper.servingDir());
 }
@@ -1061,6 +1134,7 @@ overlay.addEventListener('click', e => { if (e.target === overlay) hideHelp(); }
 speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlider.value) / 100; speedReadout.textContent = `${speedSlider.value}%`; });
 speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupToggle.checked; });
 humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; syncHumanMode(); });
+aiSpeedSlider.addEventListener('input', syncAISpeed);
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === ' ') {
