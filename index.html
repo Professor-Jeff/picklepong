@@ -9,7 +9,7 @@
   .score-label { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.06em; }
   .score-value { font-size: 30px; font-weight: 700; line-height: 1; color: var(--color-text-primary); }
   #score-note { margin-top: 10px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.8; }
-  #rally-hit-note, #rally-last-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
+  #rally-hit-note, #rally-last-note, #rally-stats-note, #serve-physics-note, #collision-watch-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
   #player-legend { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid rgba(255,255,255,0.10); display: flex; flex-direction: column; gap: 6px; }
   .player-legend-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.04em; white-space: nowrap; }
   .player-swatch { width: 11px; height: 11px; border-radius: 2px; border: 0.5px solid rgba(255,255,255,0.32); display: inline-block; flex: 0 0 auto; }
@@ -123,6 +123,9 @@
       <div id="score-note">serve 0-0-2</div>
       <div id="rally-hit-note">rally hits 0</div>
       <div id="rally-last-note">last rally 0 · max 0</div>
+      <div id="rally-stats-note">rallies avg -- · med -- · &lt;10 --</div>
+      <div id="serve-physics-note">serve -- mph · return --</div>
+      <div id="collision-watch-note">collision watch clear</div>
       <div id="player-legend" aria-label="player colors"></div>
     </div>
   </div>
@@ -176,9 +179,13 @@ const PADDLE_FRICTION = 0.84;
 const AI_MOVE_SETTLE_PX = 8;
 const AI_DEPTH_SETTLE_PX = 5;
 const AI_SETTLE_FRICTION = 0.62;
+const AI_AIM_VARIANCE_FT = 0.5;
 const SCORE_LIMIT = 7;
 const BASE_BALL_SPEED = 5.5;
+const SERVE_SPEED_MPH = 28;
 const MAX_BALL_SPEED = 14;
+const MAX_BALL_STEP_PX = 4;
+const SIMULATION_FPS = 60;
 const SERVE_DELAY_MS = 1000;
 const SERVICE_APRON_GAP = 8;
 const OUT_BALL_FOLLOW_MS = 450;
@@ -212,6 +219,9 @@ const scoreTeam1LabelEl = document.getElementById('score-team1-label');
 const scoreNoteEl = document.getElementById('score-note');
 const rallyHitNoteEl = document.getElementById('rally-hit-note');
 const rallyLastNoteEl = document.getElementById('rally-last-note');
+const rallyStatsNoteEl = document.getElementById('rally-stats-note');
+const servePhysicsNoteEl = document.getElementById('serve-physics-note');
+const collisionWatchNoteEl = document.getElementById('collision-watch-note');
 const playerLegendEl = document.getElementById('player-legend');
 
 let orientation = 'portrait';
@@ -222,6 +232,7 @@ let ballSpeedScale = Number(speedSlider.value) / 100;
 let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
+let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let ball, team0Human, team0Partner, team1Human, team1Partner;
 speedReadout.textContent = `${speedSlider.value}%`;
 aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
@@ -249,6 +260,7 @@ const courtGeometry = {
   get courtMoveSize() { return this.courtMoveEnd - this.courtMoveStart; },
   get net() { return this.courtPlayStart + this.courtPlaySize / 2; },
   get kitchenPx() { return this.kitchenDepthFt * this.pxPerFt; },
+  ftToPx(feet) { return feet * this.pxPerFt; },
   sideCoord(team) { return team === 0 ? this.courtPlayStart + this.sideInset : this.courtPlayEnd - this.sideInset - PADDLE_THICK; },
   apronReadyCoord(team) {
     return team === 0
@@ -284,6 +296,8 @@ class Player {
     this.move = zoneCenter(this.zone);
     this.vMove = 0;
     this.vPlay = 0;
+    this.aiAimOffset = 0;
+    this.aiAimEvent = null;
   }
 
   setHuman(isHuman) {
@@ -308,6 +322,8 @@ class Player {
 
   reset({ snapMove = true, snapPlay = true } = {}) {
     this.setPositionLane(this.positionLaneName);
+    this.aiAimOffset = 0;
+    this.aiAimEvent = null;
     if (snapPlay) {
       this.play = courtGeometry.sideCoord(this.team);
       this.vPlay = 0;
@@ -403,7 +419,20 @@ class Player {
     if (comingToward && !serving) {
       const predicted = predictInterceptMove(this.frontCoord());
       const ownsBall = predicted >= this.zone.min + NO_POACH_BUFFER && predicted <= this.zone.max - NO_POACH_BUFFER;
-      if (ownsBall) targetMove = predicted;
+      if (ownsBall) {
+        const aimEvent = rallyState ? rallyState.hitCount : 0;
+        if (this.aiAimEvent !== aimEvent) {
+          this.aiAimEvent = aimEvent;
+          this.aiAimOffset = (Math.random() * 2 - 1) * courtGeometry.ftToPx(AI_AIM_VARIANCE_FT);
+        }
+        targetMove = clampToZone(predicted - PADDLE_LEN / 2 + this.aiAimOffset, this.zone) + PADDLE_LEN / 2;
+      } else {
+        this.aiAimEvent = null;
+        this.aiAimOffset = 0;
+      }
+    } else {
+      this.aiAimEvent = null;
+      this.aiAimOffset = 0;
     }
     this.updateAIPosition({ targetMove, targetPlay });
   }
@@ -425,7 +454,7 @@ class Player {
       const t = (front - previousEdge) / (edge - previousEdge);
       impactMove = ball.previousMoveCoord() + (moveCoordOfBall() - ball.previousMoveCoord()) * t;
     }
-    const moveOverlap = impactMove >= this.move - 2 && impactMove <= this.move + PADDLE_LEN + 2;
+    const moveOverlap = impactMove + BALL_R >= this.move && impactMove - BALL_R <= this.move + PADDLE_LEN;
     if (!moveOverlap) return false;
     const offset = impactMove - this.center();
     const reboundSpeed = progressiveSpeedups ? Math.abs(pv) * 1.045 : Math.abs(pv);
@@ -481,8 +510,9 @@ class Ball {
     const playDistance = Math.max(1, Math.abs(targetPlay - pos.play));
     const moveDistance = targetMove - pos.move;
     const angle = Math.atan2(moveDistance, playDistance);
-    const playVelocity = Math.cos(angle) * BASE_BALL_SPEED * dir;
-    const moveVelocity = Math.sin(angle) * BASE_BALL_SPEED;
+    const serveSpeed = mphToPixelsPerFrame(SERVE_SPEED_MPH);
+    const playVelocity = Math.cos(angle) * serveSpeed * dir;
+    const moveVelocity = Math.sin(angle) * serveSpeed;
     return Ball.fromPlayMove({ play: pos.play, move: pos.move, playVelocity, moveVelocity });
   }
 
@@ -713,24 +743,38 @@ class RallyState {
     this.events = [];
     this.servingTeamAtStart = null;
     this.serveDir = 0;
+    this.serveReleaseTime = null;
   }
 
   resetGameStats() {
     this.lastRallyHitCount = 0;
     this.maxRallyHitCount = 0;
+    this.rallyLengths = [];
+    this.currentServeMph = null;
+    this.lastServeMph = null;
+    this.lastServeReturnMs = null;
   }
 
   finishRally() {
     this.lastRallyHitCount = this.hitCount;
     this.maxRallyHitCount = Math.max(this.maxRallyHitCount || 0, this.hitCount);
+    if (!this.rallyLengths) this.rallyLengths = [];
+    this.rallyLengths.push(this.hitCount);
     return this.lastRallyHitCount;
   }
 
-  startServe({ servingTeam, server, dir }) {
+  startServe({ servingTeam, server, dir, serveSpeedMph }) {
     this.reset();
     this.servingTeamAtStart = servingTeam;
     this.serveDir = dir;
+    this.currentServeMph = serveSpeedMph;
+    this.lastServeMph = serveSpeedMph;
+    this.lastServeReturnMs = null;
     if (server) this.recordHit(server, 'serve');
+  }
+
+  markServeReleased(time) {
+    this.serveReleaseTime = time;
   }
 
   recordPaddleHit(player) {
@@ -751,6 +795,9 @@ class RallyState {
     this.teamHits[player.team]++;
     this.lastHit = hit;
     this.events.push(hit);
+    if (hit.number === 2 && player.team !== this.servingTeamAtStart && this.serveReleaseTime !== null) {
+      this.lastServeReturnMs = performance.now() - this.serveReleaseTime;
+    }
     return hit;
   }
 
@@ -773,7 +820,11 @@ class RallyState {
       servingTeamAtStart: this.servingTeamAtStart,
       serveDir: this.serveDir,
       lastRallyHitCount: this.lastRallyHitCount || 0,
-      maxRallyHitCount: this.maxRallyHitCount || 0
+      maxRallyHitCount: this.maxRallyHitCount || 0,
+      rallyLengths: (this.rallyLengths || []).slice(),
+      currentServeMph: this.currentServeMph,
+      lastServeMph: this.lastServeMph,
+      lastServeReturnMs: this.lastServeReturnMs
     };
   }
 }
@@ -794,6 +845,18 @@ function playVelocity() { return ball.playVelocity(); }
 function moveVelocity() { return ball.moveVelocity(); }
 function setPlayVelocity(v) { ball.setPlayVelocity(v); }
 function setMoveVelocity(v) { ball.setMoveVelocity(v); }
+function mphToPixelsPerFrame(mph) {
+  const feetPerSecond = mph * 5280 / 3600;
+  return feetPerSecond * courtGeometry.pxPerFt / SIMULATION_FPS;
+}
+function pixelsPerFrameToMph(pxPerFrame) {
+  const feetPerSecond = (pxPerFrame / courtGeometry.pxPerFt) * SIMULATION_FPS;
+  return feetPerSecond * 3600 / 5280;
+}
+function ballSpeedMph(b) {
+  const pxPerFrame = Math.sqrt(b.vx * b.vx + b.vy * b.vy) * ballSpeedScale;
+  return pixelsPerFrameToMph(pxPerFrame);
+}
 function paddleRect(p) { return p.rect(); }
 function paddleFrontCoord(p) { return p.frontCoord(); }
 function clampPlayForTeam(play, team) {
@@ -822,6 +885,12 @@ function updateScoreboard() {
   updateRallyHitReadout();
   updatePlayerLegend();
 }
+function median(values) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 function updateRallyHitReadout() {
   if (!rallyHitNoteEl || !rallyState) return;
   const hits = rallyState.hitCount;
@@ -831,6 +900,31 @@ function updateRallyHitReadout() {
     : `rally hits ${hits}`;
   if (rallyLastNoteEl) {
     rallyLastNoteEl.textContent = `last rally ${rallyState.lastRallyHitCount || 0} · max ${rallyState.maxRallyHitCount || 0}`;
+  }
+  if (rallyStatsNoteEl) {
+    const lengths = rallyState.rallyLengths || [];
+    if (lengths.length) {
+      const avg = lengths.reduce((sum, v) => sum + v, 0) / lengths.length;
+      const med = median(lengths);
+      const underTenPct = Math.round(lengths.filter(v => v < 10).length / lengths.length * 100);
+      rallyStatsNoteEl.textContent = `rallies avg ${avg.toFixed(1)} · med ${med.toFixed(1)} · <10 ${underTenPct}%`;
+    } else {
+      rallyStatsNoteEl.textContent = 'rallies avg -- · med -- · <10 --';
+    }
+  }
+  if (servePhysicsNoteEl) {
+    const mph = rallyState.lastServeMph;
+    const returnSeconds = rallyState.lastServeReturnMs === null || rallyState.lastServeReturnMs === undefined
+      ? '--'
+      : `${(rallyState.lastServeReturnMs / 1000).toFixed(2)}s`;
+    servePhysicsNoteEl.textContent = mph
+      ? `serve ${mph.toFixed(1)} mph · return ${returnSeconds}`
+      : 'serve -- mph · return --';
+  }
+  if (collisionWatchNoteEl) {
+    collisionWatchNoteEl.textContent = collisionWatchMisses
+      ? `collision watch ${collisionWatchMisses} miss${collisionWatchMisses === 1 ? '' : 'es'}`
+      : 'collision watch clear';
   }
 }
 function playerDisplayName(p) {
@@ -859,6 +953,41 @@ function swapTeamPositionLanes(team) {
   players[0].setPositionLane(players[1].positionLaneName);
   players[1].setPositionLane(firstLane);
 }
+function validateServingParity(context = '') {
+  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return true;
+  const team = scoreKeeper.servingTeam;
+  const rightLane = scoreKeeper.laneOnRightAsFacingNet(team);
+  const leftLane = scoreKeeper.oppositeLane(rightLane);
+  const firstServer = teamPlayers(team).find(p => p.serviceTurn === 1);
+  const secondServer = teamPlayers(team).find(p => p.serviceTurn === 2);
+  let valid = true;
+  let reason = '';
+
+  if (scoreKeeper.openingServerException) {
+    const expectedSecondLane = scoreKeeper.point(team) % 2 === 0 ? rightLane : leftLane;
+    valid = !!secondServer && secondServer.positionLaneName === expectedSecondLane;
+    reason = `opening server #2 parity expects ${expectedSecondLane}`;
+  } else {
+    const evenScore = scoreKeeper.point(team) % 2 === 0;
+    const expectedFirstLane = evenScore ? rightLane : leftLane;
+    const expectedSecondLane = evenScore ? leftLane : rightLane;
+    valid = !!firstServer && !!secondServer
+      && firstServer.positionLaneName === expectedFirstLane
+      && secondServer.positionLaneName === expectedSecondLane;
+    reason = `score parity expects S1 ${expectedFirstLane}, S2 ${expectedSecondLane}`;
+  }
+
+  if (!valid) {
+    console.warn(`service parity mismatch${context ? ` (${context})` : ''}: ${reason}`, {
+      score: scoreKeeper.point(team),
+      servingTeam: teamName(team),
+      serverNumber: scoreKeeper.serverNumber,
+      firstServer: firstServer ? firstServer.positionLaneName : null,
+      secondServer: secondServer ? secondServer.positionLaneName : null
+    });
+  }
+  return valid;
+}
 function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return;
   for (const p of allPaddles()) p.clearServiceTurn();
@@ -867,11 +996,11 @@ function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   if (scoreKeeper.openingServerException && team === scoreKeeper.servingTeam) {
     // Opening pickleball exception: the right-side player serves as server #2,
     // and a fault causes immediate side-out instead of giving the teammate a serve.
-    playerForTeamAndRole(team, firstServerLane).setServiceTurn(2);
+    playerForTeamAndPosition(team, firstServerLane).setServiceTurn(2);
     return;
   }
-  playerForTeamAndRole(team, firstServerLane).setServiceTurn(1);
-  playerForTeamAndRole(team, secondServerLane).setServiceTurn(2);
+  playerForTeamAndPosition(team, firstServerLane).setServiceTurn(1);
+  playerForTeamAndPosition(team, secondServerLane).setServiceTurn(2);
 }
 function currentServingPlayer() {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
@@ -1022,8 +1151,9 @@ function startServe(dir) {
   resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
-  rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir });
   ball = launchServeBall(dir);
+  validateServingParity('start serve');
+  rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
   msgEl.textContent = scoreKeeper.serveText('.');
 }
 function startPointResolution(winner) {
@@ -1039,8 +1169,9 @@ function acknowledgePointResolution() {
   rallyState.finishRally();
   const result = scoreKeeper.recordRallyWinner(pendingRallyWinner);
   pendingRallyResult = result;
-  assignServiceTurnsForTeam(scoreKeeper.servingTeam);
   if (result.pointScored) swapTeamPositionLanes(scoreKeeper.servingTeam);
+  else assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+  validateServingParity('rally result');
   updateScoreboard();
   msgEl.textContent = result.gameOver ? scoreKeeper.winText(pendingRallyWinner) : scoreKeeper.rallyText(result);
   pointResolveStartTime = performance.now();
@@ -1113,13 +1244,69 @@ function updateServe() {
   const elapsed = performance.now() - serveStartTime;
   const dots = '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1));
   msgEl.textContent = scoreKeeper.serveText(dots);
-  if (elapsed >= SERVE_DELAY_MS) { serving = false; ball = launchServeBall(serveDir); updateScoreMessage(); }
+  if (elapsed >= SERVE_DELAY_MS) { serving = false; ball = launchServeBall(serveDir); rallyState.markServeReleased(performance.now()); updateScoreMessage(); }
 }
 function recordPaddleHit(p) { rallyState.recordPaddleHit(p); }
 function checkPaddleHit(p) {
   const hit = p.checkHit();
   if (hit) recordPaddleHit(p);
   return hit;
+}
+function ballCenterlineCrossesPaddle(p) {
+  const front = p.frontCoord();
+  const prevPlay = ball.previousPlayCoord();
+  const currentPlay = ball.playCoord();
+  const crossedFront = p.team === 0
+    ? prevPlay >= front && currentPlay <= front
+    : prevPlay <= front && currentPlay >= front;
+  if (!crossedFront || currentPlay === prevPlay) return false;
+  const t = (front - prevPlay) / (currentPlay - prevPlay);
+  const impactMove = ball.previousMoveCoord() + (ball.moveCoord() - ball.previousMoveCoord()) * t;
+  return impactMove >= p.move && impactMove <= p.move + PADDLE_LEN;
+}
+function recordCollisionWatchMiss(p, winner = null) {
+  collisionWatchMisses++;
+  lastCollisionWatchMiss = {
+    frameTime: performance.now(),
+    rallyHits: rallyState ? rallyState.hitCount : null,
+    paddle: p.label,
+    team: teamName(p.team),
+    winner: winner === null ? null : teamName(winner),
+    previousPlay: ball.previousPlayCoord(),
+    currentPlay: ball.playCoord(),
+    previousMove: ball.previousMoveCoord(),
+    currentMove: ball.moveCoord(),
+    paddlePlay: p.play,
+    paddleMove: p.move
+  };
+  console.warn('collision watchdog: ball centerline crossed paddle without hit', lastCollisionWatchMiss);
+}
+function checkMissedPaddleCollision(paddles, hitRecorded, winner = null) {
+  if (hitRecorded) return;
+  const missed = paddles.find(ballCenterlineCrossesPaddle);
+  if (missed) recordCollisionWatchMiss(missed, winner);
+}
+function currentBallStepDistance(scale) {
+  return Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) * scale;
+}
+function advanceLiveBallStep(scale) {
+  ball.advance(scale);
+  ball.bounceOffMoveWalls();
+  const defendingPaddles = teamPaddlesForDirection(playVelocity());
+  let hitRecorded = false;
+  for (const p of defendingPaddles) if (checkPaddleHit(p)) { hitRecorded = true; break; }
+  ball.limitSpeed();
+  const winner = courtGeometry.scoreForPlayCoord(playCoordOfBall());
+  checkMissedPaddleCollision(defendingPaddles, hitRecorded, winner);
+  if (winner !== null) startPointResolution(winner);
+  return hitRecorded || winner !== null;
+}
+function advanceLiveBall() {
+  const stepCount = Math.max(1, Math.ceil(currentBallStepDistance(ballSpeedScale) / MAX_BALL_STEP_PX));
+  const stepScale = ballSpeedScale / stepCount;
+  for (let i = 0; i < stepCount; i++) {
+    if (advanceLiveBallStep(stepScale)) break;
+  }
 }
 function update() {
   if (serving) { updatePaddles(); updateServe(); return; }
@@ -1133,12 +1320,7 @@ function update() {
     return;
   }
   updatePaddles();
-  ball.advance(ballSpeedScale);
-  ball.bounceOffMoveWalls();
-  for (const p of teamPaddlesForDirection(playVelocity())) if (checkPaddleHit(p)) break;
-  ball.limitSpeed();
-  const winner = courtGeometry.scoreForPlayCoord(playCoordOfBall());
-  if (winner !== null) startPointResolution(winner);
+  advanceLiveBall();
 }
 function currentServeDots() { if (!serving) return ''; const elapsed = performance.now() - serveStartTime; return '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1)); }
 
