@@ -31,6 +31,20 @@
   #ai-speed-slider { width: 130px; cursor: pointer; }
   #ai-speed-readout { min-width: 34px; display: inline-block; text-align: right; }
   #pong-msg { font-size: 13px; color: var(--color-text-secondary); letter-spacing: 0.08em; min-height: 20px; margin-top: 6px; }
+  #door-qr { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-primary); page-break-inside: avoid; }
+  #door-qr-title { font-size: 18px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  #door-qr img { width: 150px; height: auto; image-rendering: pixelated; border: 8px solid #fff; background: #fff; }
+  #door-qr-url { font-size: 14px; letter-spacing: 0.05em; color: var(--color-text-secondary); }
+
+  @media print {
+    #pong-wrap { padding: 0; }
+    #pong-ui, #pong-msg, #help-overlay { display: none !important; }
+    #game-layout { align-items: center; }
+    #door-qr { color: #000; }
+    #door-qr-title { font-size: 22pt; }
+    #door-qr img { width: 4in; border: 0.14in solid #fff; }
+    #door-qr-url { font-size: 14pt; color: #000; }
+  }
 
   #help-overlay {
     display: none;
@@ -67,10 +81,12 @@
   #canvas-wrap.portrait .court-score { left: -68px; min-width: 56px; flex-direction: column; align-items: flex-end; gap: 2px; transform: translateY(-50%); }
   #canvas-wrap.portrait .court-score-team0 { top: 25%; }
   #canvas-wrap.portrait .court-score-team1 { top: 75%; }
+  #canvas-wrap.portrait #door-qr { left: calc(100% + 18px); bottom: 0; }
   #canvas-wrap.landscape { margin-top: 44px; }
   #canvas-wrap.landscape .court-score { top: -42px; min-width: 82px; justify-content: center; transform: translateX(-50%); }
   #canvas-wrap.landscape .court-score-team0 { left: 25%; }
   #canvas-wrap.landscape .court-score-team1 { left: 75%; }
+  #canvas-wrap.landscape #door-qr { right: calc(100% + 18px); top: 0; }
 </style>
 <div id="pong-wrap">
   <h2 class="sr-only">Pickleball doubles Pong game with AI partners</h2>
@@ -79,6 +95,11 @@
     <div class="court-score court-score-team0"><span id="score-team0-label" class="score-label">top</span><span id="score-team0" class="score-value">0</span></div>
     <div class="court-score court-score-team1"><span id="score-team1-label" class="score-label">bottom</span><span id="score-team1" class="score-value">0</span></div>
     <canvas id="pong-canvas" width="320" height="704"></canvas>
+    <div id="door-qr" aria-label="scan to play">
+      <div id="door-qr-title">scan to play</div>
+      <img src="qrcode_professor-jeff.github.io.png" alt="QR code for professor-jeff.github.io">
+      <div id="door-qr-url">professor-jeff.github.io</div>
+    </div>
     <div id="help-overlay">
       <div id="help-box">
         <h3>&#127358; how to play</h3>
@@ -1245,12 +1266,13 @@ function acknowledgePointResolution() {
     const scoringTeam = scoreKeeper.servingTeam;
     swapTeamPositionLanes(scoringTeam);
     addGameHistory(`point ${scoreKeeper.call()} · ${teamName(scoringTeam)} TEAM scored · ${serviceMoveText(scoringTeam)}`);
+    addGameHistory('-------- SCORE');
   } else {
     const faultingTeam = pendingRallyWinner === null ? 1 - scoreKeeper.servingTeam : 1 - pendingRallyWinner;
     if (result.sideOut) {
       assignServiceTurnsForTeam(scoreKeeper.servingTeam);
       addGameHistory(`${teamName(faultingTeam)} team faults. Side out to ${teamName(scoreKeeper.servingTeam)} team`);
-      addGameHistory('--------');
+      addGameHistory('-------- SIDE OUT');
     } else {
       addGameHistory(`${teamName(faultingTeam)} team faults. Second serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
     }
