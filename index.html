@@ -14,6 +14,9 @@
   .player-legend-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.04em; white-space: nowrap; }
   .player-swatch { width: 11px; height: 11px; border-radius: 2px; border: 0.5px solid rgba(255,255,255,0.32); display: inline-block; flex: 0 0 auto; }
   .player-legend-role { color: var(--color-text-primary); opacity: 0.92; }
+  #history-title { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid rgba(255,255,255,0.10); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); }
+  #game-history { margin-top: 7px; width: 220px; max-height: 160px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 5px; font-size: 10px; line-height: 1.35; color: var(--color-text-secondary); letter-spacing: 0.03em; }
+  .history-entry { border-left: 2px solid rgba(255,255,255,0.14); padding-left: 6px; }
   #pong-canvas { border: 1.5px solid var(--color-border-secondary); border-radius: 4px; background: #0a0a0a; display: block; }
   #pong-ui { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
   #pong-ui button { font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; padding: 7px 18px; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-primary); border-radius: var(--border-radius-md); cursor: pointer; }
@@ -127,6 +130,8 @@
       <div id="serve-physics-note">serve -- mph · return --</div>
       <div id="collision-watch-note">collision watch clear</div>
       <div id="player-legend" aria-label="player colors"></div>
+      <div id="history-title">history</div>
+      <div id="game-history" aria-label="game history"></div>
     </div>
   </div>
   <div id="pong-msg">press space or tap start to play</div>
@@ -193,6 +198,8 @@ const POINT_RESOLVE_DELAY_MS = 1000;
 const NO_POACH_BUFFER = 4;
 const PLAYER_COLORS = {
   human: '#2f80ed',      // keep the human-controlled paddle blue
+  serviceRight: '#f2994a',
+  serviceLeft: '#27ae60',
   team0Partner: '#f2994a',
   team0Secondary: '#27ae60',
   team1Partner: '#bb6bd9',
@@ -223,6 +230,7 @@ const rallyStatsNoteEl = document.getElementById('rally-stats-note');
 const servePhysicsNoteEl = document.getElementById('serve-physics-note');
 const collisionWatchNoteEl = document.getElementById('collision-watch-note');
 const playerLegendEl = document.getElementById('player-legend');
+const gameHistoryEl = document.getElementById('game-history');
 
 let orientation = 'portrait';
 let humanEnabled = humanToggle.checked, running = false, paused = false, serving = false, resolvingPoint = false, keys = {}, anim = null;
@@ -233,6 +241,7 @@ let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
+let gameHistoryEntries = [];
 let ball, team0Human, team0Partner, team1Human, team1Partner;
 speedReadout.textContent = `${speedSlider.value}%`;
 aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
@@ -288,6 +297,7 @@ class Player {
     this.positionLaneName = positionLaneName;
     this.isHuman = isHuman;
     this.label = label;
+    this.identityColor = color;
     this.color = color;
     this.movementSkill = { ...movementSkill };
     this.serviceTurn = null;
@@ -303,8 +313,13 @@ class Player {
   setHuman(isHuman) {
     this.isHuman = isHuman;
     if (isHuman) this.color = PLAYER_COLORS.human;
-    else this.color = defaultPlayerColor(this.team, this.roleLaneName);
+    else this.color = this.identityColor || defaultPlayerColor(this.team, this.roleLaneName);
     this.movementSkill = isHuman ? { ...DEFAULT_MOVEMENT_SKILL } : scaledMovementSkill(aiMovementScale);
+  }
+
+  setIdentityColor(color) {
+    this.identityColor = color;
+    if (!this.isHuman) this.color = color;
   }
 
   setPositionLane(positionLaneName) {
@@ -651,7 +666,9 @@ class ScoreKeeper {
   servingLabel() {
     const server = currentServingPlayer();
     const turn = server && server.serviceTurn ? server.serviceTurn : this.serverNumber;
-    return `${teamName(this.servingTeam)} player ${turn} serving`;
+    const lane = server ? server.positionLaneName : this.servingLaneName();
+    const side = lane === this.laneOnRightAsFacingNet(this.servingTeam) ? 'right' : 'left';
+    return `${teamName(this.servingTeam)} player ${turn} serving from ${side}`;
   }
 
   receiveLabel() {
@@ -880,6 +897,22 @@ function teamName(team) {
 function updateInfoText() {
   updateScoreboard();
 }
+function renderGameHistory() {
+  if (!gameHistoryEl) return;
+  gameHistoryEl.innerHTML = gameHistoryEntries
+    .map(text => `<div class="history-entry">${text}</div>`)
+    .join('');
+  gameHistoryEl.scrollTop = gameHistoryEl.scrollHeight;
+}
+function addGameHistory(text) {
+  gameHistoryEntries.push(text);
+  if (gameHistoryEntries.length > 80) gameHistoryEntries = gameHistoryEntries.slice(-80);
+  renderGameHistory();
+}
+function resetGameHistory() {
+  gameHistoryEntries = [];
+  renderGameHistory();
+}
 function updateScoreboard() {
   scoreKeeper.updateBoard();
   updateRallyHitReadout();
@@ -942,6 +975,31 @@ function playerForTeamAndPosition(team, positionLaneName) {
 function teamPlayers(team) {
   return allPaddles().filter(p => p.team === team);
 }
+function sideForLane(team, laneName) {
+  return laneName === scoreKeeper.laneOnRightAsFacingNet(team) ? 'right' : 'left';
+}
+function sideForPlayer(player) {
+  return sideForLane(player.team, player.positionLaneName);
+}
+function serviceColorName(player) {
+  if (player.identityColor === PLAYER_COLORS.serviceRight) return 'ORANGE';
+  if (player.identityColor === PLAYER_COLORS.serviceLeft) return 'GREEN';
+  if (player.color === PLAYER_COLORS.human) return 'BLUE';
+  return 'AI';
+}
+function describePlayer(player) {
+  return `${teamName(player.team)} ${player.roleLaneName === 'human' ? 'main' : 'partner'}`;
+}
+function describeServiceIdentity(player) {
+  return `${teamName(player.team)} ${serviceColorName(player)} PLAYER`;
+}
+function servingHistoryLabel() {
+  const server = currentServingPlayer();
+  const turn = server && server.serviceTurn ? server.serviceTurn : scoreKeeper.serverNumber;
+  const side = server ? sideForPlayer(server) : sideForLane(scoreKeeper.servingTeam, scoreKeeper.servingLaneName());
+  const color = server ? `${serviceColorName(server)} ` : '';
+  return `${teamName(scoreKeeper.servingTeam)} ${color}player ${turn} serving from ${side}`;
+}
 function activeServerForTeam(team = scoreKeeper.servingTeam) {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
   return teamPlayers(team).find(p => p.serviceTurn === scoreKeeper.serverNumber) || null;
@@ -952,6 +1010,11 @@ function swapTeamPositionLanes(team) {
   const firstLane = players[0].positionLaneName;
   players[0].setPositionLane(players[1].positionLaneName);
   players[1].setPositionLane(firstLane);
+}
+function serviceMoveText(team) {
+  return teamPlayers(team)
+    .map(p => `${describeServiceIdentity(p)} to ${sideForPlayer(p)}`)
+    .join('; ');
 }
 function validateServingParity(context = '') {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return true;
@@ -996,11 +1059,19 @@ function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   if (scoreKeeper.openingServerException && team === scoreKeeper.servingTeam) {
     // Opening pickleball exception: the right-side player serves as server #2,
     // and a fault causes immediate side-out instead of giving the teammate a serve.
-    playerForTeamAndPosition(team, firstServerLane).setServiceTurn(2);
+    const openingServer = playerForTeamAndPosition(team, firstServerLane);
+    const openingPartner = playerForTeamAndPosition(team, secondServerLane);
+    openingServer.setServiceTurn(2);
+    openingServer.setIdentityColor(PLAYER_COLORS.serviceRight);
+    openingPartner.setIdentityColor(PLAYER_COLORS.serviceLeft);
     return;
   }
-  playerForTeamAndPosition(team, firstServerLane).setServiceTurn(1);
-  playerForTeamAndPosition(team, secondServerLane).setServiceTurn(2);
+  const firstServer = playerForTeamAndPosition(team, firstServerLane);
+  const secondServer = playerForTeamAndPosition(team, secondServerLane);
+  firstServer.setServiceTurn(1);
+  secondServer.setServiceTurn(2);
+  firstServer.setIdentityColor(PLAYER_COLORS.serviceRight);
+  secondServer.setIdentityColor(PLAYER_COLORS.serviceLeft);
 }
 function currentServingPlayer() {
   if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
@@ -1154,6 +1225,7 @@ function startServe(dir) {
   ball = launchServeBall(dir);
   validateServingParity('start serve');
   rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
+  addGameHistory(`serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
   msgEl.textContent = scoreKeeper.serveText('.');
 }
 function startPointResolution(winner) {
@@ -1169,8 +1241,20 @@ function acknowledgePointResolution() {
   rallyState.finishRally();
   const result = scoreKeeper.recordRallyWinner(pendingRallyWinner);
   pendingRallyResult = result;
-  if (result.pointScored) swapTeamPositionLanes(scoreKeeper.servingTeam);
-  else assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+  if (result.pointScored) {
+    const scoringTeam = scoreKeeper.servingTeam;
+    swapTeamPositionLanes(scoringTeam);
+    addGameHistory(`point ${scoreKeeper.call()} · ${teamName(scoringTeam)} TEAM scored · ${serviceMoveText(scoringTeam)}`);
+  } else {
+    const faultingTeam = pendingRallyWinner === null ? 1 - scoreKeeper.servingTeam : 1 - pendingRallyWinner;
+    if (result.sideOut) {
+      assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+      addGameHistory(`${teamName(faultingTeam)} team faults. Side out to ${teamName(scoreKeeper.servingTeam)} team`);
+      addGameHistory('--------');
+    } else {
+      addGameHistory(`${teamName(faultingTeam)} team faults. Second serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
+    }
+  }
   validateServingParity('rally result');
   updateScoreboard();
   msgEl.textContent = result.gameOver ? scoreKeeper.winText(pendingRallyWinner) : scoreKeeper.rallyText(result);
@@ -1388,6 +1472,7 @@ function startGame() {
   if (anim) cancelAnimationFrame(anim); anim = null;
   scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
   rallyState.resetGameStats();
+  resetGameHistory();
   msgEl.textContent = ''; btnStart.textContent = 'restart'; btnPause.textContent = 'pause';
   initState(); assignServiceTurnsForTeam(scoreKeeper.servingTeam); startServe(scoreKeeper.servingDir()); ensureLoop();
 }
