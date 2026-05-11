@@ -216,6 +216,7 @@ const SERVE_DELAY_MS = 1000;
 const SERVICE_APRON_GAP = 8;
 const OUT_BALL_FOLLOW_MS = 450;
 const POINT_RESOLVE_DELAY_MS = 1000;
+const AUTO_NEXT_GAME_DELAY_MS = 3000;
 const NO_POACH_BUFFER = 4;
 const PLAYER_COLORS = {
   human: '#2f80ed',      // keep the human-controlled paddle blue
@@ -261,6 +262,7 @@ let ballSpeedScale = Number(speedSlider.value) / 100;
 let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
+let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let ball, team0Human, team0Partner, team1Human, team1Partner;
@@ -1199,6 +1201,7 @@ function humanControlledPlayer() {
   return courtGeometry.isPortrait ? team1Human : team0Human;
 }
 function syncHumanMode() {
+  if (humanEnabled) clearAutoNextGame();
   if (!team0Partner || !team0Human || !team1Partner || !team1Human) return;
   for (const p of allPaddles()) p.setHuman(false);
   if (humanEnabled) humanControlledPlayer().setHuman(true);
@@ -1282,6 +1285,22 @@ function acknowledgePointResolution() {
   msgEl.textContent = result.gameOver ? scoreKeeper.winText(pendingRallyWinner) : scoreKeeper.rallyText(result);
   pointResolveStartTime = performance.now();
 }
+function isAllAIGame() {
+  return !humanEnabled;
+}
+function clearAutoNextGame() {
+  if (!autoNextGameTimer) return;
+  clearTimeout(autoNextGameTimer);
+  autoNextGameTimer = null;
+}
+function scheduleAutoNextGame() {
+  clearAutoNextGame();
+  if (!isAllAIGame()) return;
+  autoNextGameTimer = setTimeout(() => {
+    autoNextGameTimer = null;
+    if (!humanEnabled) startGame();
+  }, AUTO_NEXT_GAME_DELAY_MS);
+}
 function finishPointResolution() {
   if (pendingRallyWinner === null) return;
   acknowledgePointResolution();
@@ -1290,7 +1309,7 @@ function finishPointResolution() {
     running = false; paused = false; serving = false; btnPause.textContent = 'pause';
     msgEl.textContent = scoreKeeper.winText(pendingRallyWinner);
     resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
-    btnStart.textContent = 'restart'; draw(); return;
+    btnStart.textContent = 'restart'; draw(); scheduleAutoNextGame(); return;
   }
   resetPlayers({ animateTeams: result.pointScored ? [scoreKeeper.servingTeam] : [] });
   msgEl.textContent = scoreKeeper.rallyText(result);
@@ -1491,6 +1510,7 @@ function draw() {
 function loop() { if (!running || paused) { anim = null; return; } update(); draw(); anim = requestAnimationFrame(loop); }
 function ensureLoop() { if (!anim && running && !paused) anim = requestAnimationFrame(loop); }
 function startGame() {
+  clearAutoNextGame();
   if (anim) cancelAnimationFrame(anim); anim = null;
   scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
   rallyState.resetGameStats();
