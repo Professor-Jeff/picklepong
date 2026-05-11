@@ -2,6 +2,7 @@
 
 <style>
   #pong-wrap { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 0; font-family: 'Courier New', monospace; }
+  #pong-title { margin: 0 0 14px; text-align: center; font-size: 22px; letter-spacing: 0.06em; color: var(--color-text-primary); }
   #game-layout { display: flex; align-items: flex-start; justify-content: center; gap: 14px; flex-wrap: wrap; }
   #score-panel { min-width: 135px; padding: 12px 14px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: rgba(255,255,255,0.035); color: var(--color-text-primary); box-sizing: border-box; }
   #score-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); margin-bottom: 10px; }
@@ -18,18 +19,37 @@
   #game-history { margin-top: 7px; width: 220px; max-height: 160px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 5px; font-size: 10px; line-height: 1.35; color: var(--color-text-secondary); letter-spacing: 0.03em; }
   .history-entry { border-left: 2px solid rgba(255,255,255,0.14); padding-left: 6px; }
   #pong-canvas { border: 1.5px solid var(--color-border-secondary); border-radius: 4px; background: #0a0a0a; display: block; }
-  #pong-ui { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+  #court-column { display: flex; flex-direction: column; align-items: flex-start; flex: 0 0 auto; }
+  #pong-ui { display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: min(100%, 620px); margin-top: 14px; }
+  .pong-ui-row { display: flex; align-items: center; gap: 10px; }
+  .pong-ui-row-top { justify-content: center; flex-wrap: nowrap; }
+  .pong-ui-row-bottom { display: grid; grid-template-columns: 1fr 1fr auto; column-gap: 14px; align-items: center; }
+  .pong-ui-row-bottom #speed-control { justify-self: start; }
+  .pong-ui-row-bottom #ai-speed-control { justify-self: end; }
+  .pong-ui-row-bottom #btn-help { justify-self: end; white-space: nowrap; }
   #pong-ui button { font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; padding: 7px 18px; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-primary); border-radius: var(--border-radius-md); cursor: pointer; }
   #pong-ui button:hover { background: var(--color-background-secondary); }
-  #speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #speed-control { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #speed-slider { width: 130px; cursor: pointer; }
   #speed-readout { min-width: 34px; display: inline-block; text-align: right; }
-  #speedup-control, #human-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #speedup-control, #human-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #speedup-toggle { cursor: pointer; }
   #human-toggle { cursor: pointer; }
-  #ai-speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  #ai-speed-control { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #ai-speed-slider { width: 130px; cursor: pointer; }
   #ai-speed-readout { min-width: 34px; display: inline-block; text-align: right; }
+  @media (max-width: 560px) {
+    #pong-ui { width: min(100%, 400px); }
+    .pong-ui-row { gap: 6px; }
+    #pong-ui button { padding-left: 10px; padding-right: 10px; font-size: 11px; }
+    #speedup-control, #human-control { gap: 4px; font-size: 10px; letter-spacing: 0.03em; }
+    .pong-ui-row-bottom { grid-template-columns: 1fr 1fr auto; column-gap: 8px; }
+    .pong-ui-row-bottom #speed-control,
+    .pong-ui-row-bottom #ai-speed-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
+    .pong-ui-row-bottom #btn-help { padding-left: 10px; padding-right: 10px; }
+    #speed-slider, #ai-speed-slider { width: 58px; }
+    #speed-readout, #ai-speed-readout { min-width: 30px; }
+  }
   #pong-msg { display: none; }
   #door-qr { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-primary); page-break-inside: avoid; }
   #door-qr-title { font-size: 18px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -77,20 +97,27 @@
   #help-close { display: block; width: 100%; margin-top: 18px; padding: 8px; background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 4px; color: #e0e0e0; font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; cursor: pointer; }
   #help-close:hover { background: rgba(255,255,255,0.13); }
   #canvas-wrap { position: relative; display: inline-block; }
+  #court-column.portrait { width: 472px; }
+  #court-column.landscape { width: 784px; }
   #canvas-wrap.portrait { margin-left: 72px; }
+  #canvas-wrap.portrait ~ #pong-msg,
+  #canvas-wrap.portrait ~ #pong-ui { width: 620px; margin-left: -38px; }
   #canvas-wrap.portrait .court-score { left: -68px; min-width: 56px; flex-direction: column; align-items: flex-end; gap: 2px; transform: translateY(-50%); }
   #canvas-wrap.portrait .court-score-team0 { top: 25%; }
   #canvas-wrap.portrait .court-score-team1 { top: 75%; }
   #canvas-wrap.portrait #door-qr { left: calc(100% + 18px); bottom: 0; }
   #canvas-wrap.landscape { margin-top: 44px; }
+  #canvas-wrap.landscape ~ #pong-msg,
+  #canvas-wrap.landscape ~ #pong-ui { width: 620px; margin-left: 82px; }
   #canvas-wrap.landscape .court-score { top: -42px; min-width: 82px; justify-content: center; transform: translateX(-50%); }
   #canvas-wrap.landscape .court-score-team0 { left: 25%; }
   #canvas-wrap.landscape .court-score-team1 { left: 75%; }
   #canvas-wrap.landscape #door-qr { right: calc(100% + 18px); top: 0; }
 </style>
 <div id="pong-wrap">
-  <h2 class="sr-only">Pickleball doubles Pong game with AI partners</h2>
+  <h2 id="pong-title">Pickleball Pong with AI</h2>
   <div id="game-layout">
+    <div id="court-column">
     <div id="canvas-wrap">
     <div class="court-score court-score-team0"><span id="score-team0-label" class="score-label">top</span><span id="score-team0" class="score-value">0</span></div>
     <div class="court-score court-score-team1"><span id="score-team1-label" class="score-label">bottom</span><span id="score-team1" class="score-value">0</span></div>
@@ -142,6 +169,34 @@
       </div>
     </div>
     </div>
+    <div id="pong-msg">press space or tap start to play</div>
+    <div id="pong-ui">
+      <div class="pong-ui-row pong-ui-row-top">
+        <button id="btn-start">start</button>
+        <button id="btn-pause">pause</button>
+        <button id="btn-orient">landscape</button>
+        <label id="speedup-control" for="speedup-toggle">
+          <input id="speedup-toggle" type="checkbox" checked>
+          speedups
+        </label>
+        <label id="human-control" for="human-toggle">
+          <input id="human-toggle" type="checkbox">
+          human
+        </label>
+      </div>
+      <div class="pong-ui-row pong-ui-row-bottom">
+        <label id="speed-control" for="speed-slider">ball speed
+          <input id="speed-slider" type="range" min="25" max="100" value="100" step="5">
+          <span id="speed-readout">100%</span>
+        </label>
+        <label id="ai-speed-control" for="ai-speed-slider">AI speed
+          <input id="ai-speed-slider" type="range" min="40" max="120" value="50" step="5">
+          <span id="ai-speed-readout">50%</span>
+        </label>
+        <button id="btn-help">? help</button>
+      </div>
+    </div>
+    </div>
     <div id="score-panel" aria-live="polite">
       <div id="score-title">status</div>
       <div id="score-note">serve 0-0-2</div>
@@ -155,34 +210,12 @@
       <div id="game-history" aria-label="game history"></div>
     </div>
   </div>
-  <div id="pong-msg">press space or tap start to play</div>
-  <div id="pong-ui">
-    <button id="btn-start">start</button>
-    <button id="btn-pause">pause</button>
-    <button id="btn-orient">landscape</button>
-    <button id="btn-help">? help</button>
-    <label id="speed-control" for="speed-slider">ball speed
-      <input id="speed-slider" type="range" min="25" max="100" value="100" step="5">
-      <span id="speed-readout">100%</span>
-    </label>
-    <label id="speedup-control" for="speedup-toggle">
-      <input id="speedup-toggle" type="checkbox" checked>
-      progressive speedups
-    </label>
-    <label id="human-control" for="human-toggle">
-      <input id="human-toggle" type="checkbox">
-      human control
-    </label>
-    <label id="ai-speed-control" for="ai-speed-slider">AI speed
-      <input id="ai-speed-slider" type="range" min="40" max="120" value="50" step="5">
-      <span id="ai-speed-readout">50%</span>
-    </label>
-  </div>
 </div>
 <script>
 const canvas = document.getElementById('pong-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWrap = document.getElementById('canvas-wrap');
+const courtColumn = document.getElementById('court-column');
 let W = canvas.width, H = canvas.height;
 const PADDLE_THICK = 10, PADDLE_LEN = 46, BALL_R = 6;
 // Inertia tuning: human paddles accelerate while a key is held,
@@ -875,6 +908,8 @@ function setCanvasForOrientation() {
   else { canvas.width = 784; canvas.height = 400; }
   canvasWrap.classList.toggle('portrait', orientation === 'portrait');
   canvasWrap.classList.toggle('landscape', orientation === 'landscape');
+  courtColumn.classList.toggle('portrait', orientation === 'portrait');
+  courtColumn.classList.toggle('landscape', orientation === 'landscape');
   W = canvas.width; H = canvas.height;
 }
 function playCoordOfBall() { return ball.playCoord(); }
@@ -1450,12 +1485,18 @@ function update() {
 function currentServeDots() { if (!serving) return ''; const elapsed = performance.now() - serveStartTime; return '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1)); }
 
 function drawPickleballCourt() {
-  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255,255,255,0.025)';
-  ctx.fillRect(0, 0, W, H);
   const net = courtGeometry.net, k = courtGeometry.kitchenPx;
   const ps = courtGeometry.courtPlayStart, pe = courtGeometry.courtPlayEnd;
   const ms = courtGeometry.courtMoveStart, me = courtGeometry.courtMoveEnd;
+  ctx.fillStyle = '#2F6B55'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#3859A3';
+  if (courtGeometry.isPortrait) ctx.fillRect(ms, ps, courtGeometry.courtMoveSize, courtGeometry.courtPlaySize);
+  else ctx.fillRect(ps, ms, courtGeometry.courtPlaySize, courtGeometry.courtMoveSize);
+  ctx.fillStyle = '#2B477C';
+  if (courtGeometry.isPortrait) { ctx.fillRect(ms, net - k, courtGeometry.courtMoveSize, k); ctx.fillRect(ms, net, courtGeometry.courtMoveSize, k); }
+  else { ctx.fillRect(net - k, ms, k, courtGeometry.courtMoveSize); ctx.fillRect(net, ms, k, courtGeometry.courtMoveSize); }
+  ctx.fillStyle = 'rgba(255,255,255,0.025)';
+  ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = 'rgba(255,255,255,0.32)'; ctx.lineWidth = 2; ctx.setLineDash([]);
   if (courtGeometry.isPortrait) ctx.strokeRect(ms, ps, courtGeometry.courtMoveSize, courtGeometry.courtPlaySize);
   else ctx.strokeRect(ps, ms, courtGeometry.courtPlaySize, courtGeometry.courtMoveSize);
@@ -1472,20 +1513,11 @@ function drawPickleballCourt() {
     ctx.moveTo(ps, (ms + me) / 2); ctx.lineTo(net - k, (ms + me) / 2); ctx.moveTo(net + k, (ms + me) / 2); ctx.lineTo(pe, (ms + me) / 2);
   }
   ctx.stroke();
-  ctx.setLineDash([3, 8]); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath();
-  if (courtGeometry.isPortrait) { ctx.moveTo((ms + me) / 2, ps); ctx.lineTo((ms + me) / 2, pe); }
-  else { ctx.moveTo(ps, (ms + me) / 2); ctx.lineTo(pe, (ms + me) / 2); }
-  ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(255,255,255,0.035)';
-  if (courtGeometry.isPortrait) { ctx.fillRect(ms, net - k, courtGeometry.courtMoveSize, k); ctx.fillRect(ms, net, courtGeometry.courtMoveSize, k); }
-  else { ctx.fillRect(net - k, ms, k, courtGeometry.courtMoveSize); ctx.fillRect(net, ms, k, courtGeometry.courtMoveSize); }
   ctx.font = '10px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.28)';
   if (courtGeometry.isPortrait) {
     ctx.fillText('kitchen', me - 38, net - k/2 + 3); ctx.fillText('kitchen', me - 38, net + k/2 + 3);
-    ctx.fillText('partner lane', (ms + me) / 4 + ms / 2, ps + 16); ctx.fillText('player lane', ms + courtGeometry.courtMoveSize * 0.75, pe - 12);
   } else {
     ctx.fillText('kitchen', net - k/2, me - 10); ctx.fillText('kitchen', net + k/2, me - 10);
-    ctx.fillText('AI partner lane', (ps + pe) / 2, ms + 16); ctx.fillText('human / lower lane', (ps + pe) / 2, me - 22);
   }
 }
 function drawPaddle(p) { p.draw(ctx); }
@@ -1496,7 +1528,6 @@ function draw() {
   updateScoreboard();
   if (serving) {
     ctx.font = 'bold 42px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.fillText(currentServeDots(), W/2, H/2 - 24);
-    ctx.font = '13px "Courier New"'; ctx.fillStyle = 'rgba(255,255,255,0.52)'; ctx.fillText(`${scoreKeeper.servingLabel()} cross-court`, W/2, H/2 + 8);
   }
   if (resolvingPoint) {
     ctx.font = 'bold 15px "Courier New"';
