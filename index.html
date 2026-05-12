@@ -263,6 +263,16 @@ const BALL_TRAIL_GHOSTS = [
   { index: 3, radius: 0.64, alpha: 0.24 },
   { index: 1, radius: 0.78, alpha: 0.34 }
 ];
+const OPPONENT_TARGET_UV = {
+  farLeft: -1,
+  center: 0,
+  farRight: 1,
+  net: 0,
+  kitchenLine: 7 / 22,
+  baseline: 1
+};
+const AI_POLICY_SHADOW_ENABLED = true;
+const AI_POLICY_TARGET_TOLERANCE_PX = 0.01;
 const PLAYER_COLORS = {
   human: '#2f80ed',      // keep the human-controlled paddle blue
   orange: '#f2994a',
@@ -328,6 +338,7 @@ let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let debugWarnings = [];
+let aiPolicyShadowWarnings = [];
 let playerIdentityParityMismatches = [];
 let playersById = {};
 let ball, team0Human, team0Partner, team1Human, team1Partner;
@@ -516,29 +527,7 @@ class Player {
   }
 
   updateAI() {
-    const pv = playVelocity();
-    const comingToward = (this.team === 0 && pv < 0) || (this.team === 1 && pv > 0);
-    let targetMove = this.zone.min + (this.zone.max - this.zone.min) / 2;
-    const targetPlay = aiFormationPlayCoord(this);
-    if (comingToward && !serving) {
-      const predicted = predictInterceptMove(this.frontCoord());
-      const ownsBall = predicted >= this.zone.min + NO_POACH_BUFFER && predicted <= this.zone.max - NO_POACH_BUFFER;
-      if (ownsBall) {
-        const aimEvent = rallyState ? rallyState.hitCount : 0;
-        if (this.aiAimEvent !== aimEvent) {
-          this.aiAimEvent = aimEvent;
-          this.aiAimOffset = (Math.random() * 2 - 1) * courtGeometry.ftToPx(AI_AIM_VARIANCE_FT);
-        }
-        targetMove = clampToZone(predicted - PADDLE_LEN / 2 + this.aiAimOffset, this.zone) + PADDLE_LEN / 2;
-      } else {
-        this.aiAimEvent = null;
-        this.aiAimOffset = 0;
-      }
-    } else {
-      this.aiAimEvent = null;
-      this.aiAimOffset = 0;
-    }
-    this.updateAIPosition({ targetMove, targetPlay });
+    this.updateAIPosition(decideAIPosition(this));
   }
 
   checkHit() {
@@ -1008,6 +997,43 @@ function clampPlayForTeam(play, team) {
 function zoneCenter(zone) { return (zone.min + zone.max) / 2 - PADDLE_LEN / 2; }
 function clampToZone(v, zone) { return Math.max(zone.min, Math.min(zone.max - PADDLE_LEN, v)); }
 function paddleCenter(p) { return p.center(); }
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+function clampTargetU(value) {
+  return Math.max(OPPONENT_TARGET_UV.farLeft, Math.min(OPPONENT_TARGET_UV.farRight, value));
+}
+function hitterTeam(hitter) {
+  return typeof hitter === 'number' ? hitter : hitter.team;
+}
+function rightLaneAsFacingNet(team) {
+  if (courtGeometry.isPortrait) return team === 1 ? 'human' : 'partner';
+  return team === 0 ? 'human' : 'partner';
+}
+function opponentBaselinePlayCoord(team) {
+  return team === 0 ? courtGeometry.courtPlayEnd : courtGeometry.courtPlayStart;
+}
+function targetOpponentCourtUV(hitter, { u = 0, v = OPPONENT_TARGET_UV.baseline, marginFt = 0, clamp = true } = {}) {
+  const team = hitterTeam(hitter);
+  const targetU = clamp ? clampTargetU(u) : u;
+  const targetV = clamp ? clamp01(v) : v;
+  const margin = Math.max(0, courtGeometry.ftToPx(marginFt));
+  const net = courtGeometry.net;
+  const baseline = opponentBaselinePlayCoord(team);
+  const towardBaseline = Math.sign(baseline - net);
+  const playStart = net + towardBaseline * margin;
+  const playEnd = baseline - towardBaseline * margin;
+  const rightLane = rightLaneAsFacingNet(team);
+  const leftMove = rightLane === 'human' ? courtGeometry.courtMoveStart + margin : courtGeometry.courtMoveEnd - margin;
+  const rightMove = rightLane === 'human' ? courtGeometry.courtMoveEnd - margin : courtGeometry.courtMoveStart + margin;
+  const uT = (targetU + 1) / 2;
+  return {
+    play: playStart + (playEnd - playStart) * targetV,
+    move: leftMove + (rightMove - leftMove) * uT,
+    u: targetU,
+    v: targetV
+  };
+}
 function playerById(playerId) {
   const registry = playerIdentityRegistry();
   return registry ? registry[playerId] || null : null;
@@ -1355,6 +1381,109 @@ function aiFormationPlayCoord(player) {
   return servingTeamReady || receivingPlayerOppositeServer || receivingPlayerDiagonalReady
     ? kitchenReadyPlayCoord(player)
     : player.homePlayCoord();
+}
+function makeAIContext(player) {
+  const pv = playVelocity();
+  let aimOffsetSample = null;
+  return {
+    player,
+    playVelocity: pv,
+    comingToward: (player.team === 0 && pv < 0) || (player.team === 1 && pv > 0),
+    serving,
+    rallyHitCount: rallyState ? rallyState.hitCount : 0,
+    aiAimOffsetSample() {
+      if (aimOffsetSample === null) aimOffsetSample = (Math.random() * 2 - 1) * courtGeometry.ftToPx(AI_AIM_VARIANCE_FT);
+      return aimOffsetSample;
+    }
+  };
+}
+const baselineAIPolicy = {
+  name: 'baseline',
+  decide(player, context) {
+    let targetMove = player.zone.min + (player.zone.max - player.zone.min) / 2;
+    const targetPlay = aiFormationPlayCoord(player);
+    if (context.comingToward && !context.serving) {
+      const predicted = predictInterceptMove(player.frontCoord());
+      const ownsBall = predicted >= player.zone.min + NO_POACH_BUFFER && predicted <= player.zone.max - NO_POACH_BUFFER;
+      if (ownsBall) {
+        const aimEvent = context.rallyHitCount;
+        if (player.aiAimEvent !== aimEvent) {
+          player.aiAimEvent = aimEvent;
+          player.aiAimOffset = context.aiAimOffsetSample();
+        }
+        targetMove = clampToZone(predicted - PADDLE_LEN / 2 + player.aiAimOffset, player.zone) + PADDLE_LEN / 2;
+      } else {
+        player.aiAimEvent = null;
+        player.aiAimOffset = 0;
+      }
+    } else {
+      player.aiAimEvent = null;
+      player.aiAimOffset = 0;
+    }
+    return { targetMove, targetPlay };
+  }
+};
+const baselineCloneAIPolicy = {
+  name: 'baseline-clone',
+  decide(player, context) {
+    return baselineAIPolicy.decide(player, context);
+  }
+};
+const AI_POLICIES = {
+  baseline: baselineAIPolicy,
+  baselineClone: baselineCloneAIPolicy
+};
+const ACTIVE_AI_POLICY_NAME = 'baseline';
+const SHADOW_AI_POLICY_NAME = 'baselineClone';
+function aiPolicyByName(name) {
+  return AI_POLICIES[name] || AI_POLICIES.baseline;
+}
+function activeAIPolicy() {
+  return aiPolicyByName(ACTIVE_AI_POLICY_NAME);
+}
+function shadowAIPolicy() {
+  return aiPolicyByName(SHADOW_AI_POLICY_NAME);
+}
+function cloneAIPolicyState(player) {
+  return { aiAimEvent: player.aiAimEvent, aiAimOffset: player.aiAimOffset };
+}
+function restoreAIPolicyState(player, state) {
+  player.aiAimEvent = state.aiAimEvent;
+  player.aiAimOffset = state.aiAimOffset;
+}
+function aiDecisionDelta(activeDecision, shadowDecision) {
+  return Math.max(
+    Math.abs(activeDecision.targetMove - shadowDecision.targetMove),
+    Math.abs(activeDecision.targetPlay - shadowDecision.targetPlay)
+  );
+}
+function warnAIPolicyMismatch(player, context, activeDecision, shadowDecision, delta) {
+  const report = {
+    player: playerIdentitySnapshot(player),
+    rallyHitCount: context.rallyHitCount,
+    activeDecision,
+    shadowDecision,
+    delta
+  };
+  aiPolicyShadowWarnings.push(report);
+  flagDebugWarning('ai policy shadow mismatch', report);
+  console.warn('ai policy shadow mismatch', report);
+}
+function decideAIPosition(player) {
+  const context = makeAIContext(player);
+  const before = cloneAIPolicyState(player);
+  const activePolicy = activeAIPolicy();
+  const activeDecision = activePolicy.decide(player, context);
+  const shadowPolicy = shadowAIPolicy();
+  if (AI_POLICY_SHADOW_ENABLED && shadowPolicy) {
+    const afterActive = cloneAIPolicyState(player);
+    restoreAIPolicyState(player, before);
+    const shadowDecision = shadowPolicy.decide(player, context);
+    const delta = aiDecisionDelta(activeDecision, shadowDecision);
+    if (delta > AI_POLICY_TARGET_TOLERANCE_PX) warnAIPolicyMismatch(player, context, activeDecision, shadowDecision, delta);
+    restoreAIPolicyState(player, afterActive);
+  }
+  return activeDecision;
 }
 function updatePlayerLegend() {
   if (!playerLegendEl || !playersReady()) return;
