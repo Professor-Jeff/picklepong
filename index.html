@@ -5,7 +5,9 @@
   #pong-title { margin: 0 0 14px; text-align: center; font-size: 22px; letter-spacing: 0.06em; color: var(--color-text-primary); }
   #game-layout { display: flex; align-items: flex-start; justify-content: center; gap: 14px; flex-wrap: wrap; }
   #score-panel { min-width: 135px; padding: 12px 14px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: rgba(255,255,255,0.035); color: var(--color-text-primary); box-sizing: border-box; }
-  #score-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); margin-bottom: 10px; }
+  #score-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); margin-bottom: 10px; }
+  #debug-alert { display: none; width: 16px; height: 16px; border-radius: 50%; background: #d83a34; color: #fff; font-weight: 700; font-size: 12px; line-height: 16px; text-align: center; letter-spacing: 0; }
+  #debug-alert.visible { display: inline-block; }
   .court-score { position: absolute; z-index: 3; display: flex; gap: 8px; align-items: baseline; color: var(--color-text-primary); pointer-events: none; }
   .score-label { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.06em; }
   .score-value { font-size: 30px; font-weight: 700; line-height: 1; color: var(--color-text-primary); }
@@ -198,7 +200,7 @@
     </div>
     </div>
     <div id="score-panel" aria-live="polite">
-      <div id="score-title">status</div>
+      <div id="score-title"><span>status</span><span id="debug-alert" title="debug warning: check console">!</span></div>
       <div id="score-note">serve 0-0-2</div>
       <div id="rally-hit-note">rally hits 0</div>
       <div id="rally-last-note">last rally 0 · max 0</div>
@@ -216,6 +218,8 @@ const canvas = document.getElementById('pong-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWrap = document.getElementById('canvas-wrap');
 const courtColumn = document.getElementById('court-column');
+const pongWrap = document.getElementById('pong-wrap');
+const pongTitle = document.getElementById('pong-title');
 let W = canvas.width, H = canvas.height;
 const PADDLE_THICK = 10, PADDLE_LEN = 46, BALL_R = 6;
 // Inertia tuning: human paddles accelerate while a key is held,
@@ -248,7 +252,7 @@ const SIMULATION_FPS = 60;
 const SERVE_DELAY_MS = 1000;
 const SERVICE_APRON_GAP = 8;
 const OUT_BALL_FOLLOW_MS = 450;
-const POINT_RESOLVE_DELAY_MS = 1000;
+const RESULT_DISPLAY_DELAY_MS = 2000;
 const AUTO_NEXT_GAME_DELAY_MS = 3000;
 const NO_POACH_BUFFER = 4;
 const PLAYER_COLORS = {
@@ -260,6 +264,24 @@ const PLAYER_COLORS = {
   team1Partner: '#bb6bd9',
   team1Secondary: '#f2c94c'
 };
+const PLAYER_IDS = {
+  team0Partner: 0,
+  team0Human: 1,
+  team1Partner: 2,
+  team1Human: 3
+};
+const PLAYER_ID_BY_TEAM_ROLE = {
+  '0:partner': PLAYER_IDS.team0Partner,
+  '0:human': PLAYER_IDS.team0Human,
+  '1:partner': PLAYER_IDS.team1Partner,
+  '1:human': PLAYER_IDS.team1Human
+};
+const PLAYER_DEFS = [
+  { playerId: PLAYER_IDS.team0Partner, team: 0, roleLaneName: 'partner', label: 'team 0 AI partner' },
+  { playerId: PLAYER_IDS.team0Human, team: 0, roleLaneName: 'human', label: 'team 0 human/AI' },
+  { playerId: PLAYER_IDS.team1Partner, team: 1, roleLaneName: 'partner', label: 'team 1 AI partner' },
+  { playerId: PLAYER_IDS.team1Human, team: 1, roleLaneName: 'human', label: 'team 1 human/AI' }
+];
 
 const msgEl = document.getElementById('pong-msg');
 const btnStart = document.getElementById('btn-start');
@@ -278,6 +300,7 @@ const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
 const scoreTeam1LabelEl = document.getElementById('score-team1-label');
+const debugAlertEl = document.getElementById('debug-alert');
 const scoreNoteEl = document.getElementById('score-note');
 const rallyHitNoteEl = document.getElementById('rally-hit-note');
 const rallyLastNoteEl = document.getElementById('rally-last-note');
@@ -295,9 +318,13 @@ let ballSpeedScale = Number(speedSlider.value) / 100;
 let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
+let ballHandoffAnimation = null;
 let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
+let debugWarnings = [];
+let playerIdentityParityMismatches = [];
+let playersById = {};
 let ball, team0Human, team0Partner, team1Human, team1Partner;
 speedReadout.textContent = `${speedSlider.value}%`;
 aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
@@ -347,7 +374,8 @@ const courtGeometry = {
 };
 
 class Player {
-  constructor({ team, roleLaneName, positionLaneName = roleLaneName, isHuman, label, color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
+  constructor({ playerId, team, roleLaneName, positionLaneName = roleLaneName, isHuman, label, color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
+    this.playerId = playerId;
     this.team = team;
     this.roleLaneName = roleLaneName;
     this.positionLaneName = positionLaneName;
@@ -540,11 +568,27 @@ class Player {
     const r = this.rect();
     ctx.fillStyle = this.color;
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    if (!this.isHuman) {
+    if (this === currentServingPlayer()) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      if (courtGeometry.isPortrait) {
+        const y = this.team === 0 ? r.y - 2 : r.y + r.h + 2;
+        ctx.moveTo(r.x, y);
+        ctx.lineTo(r.x + r.w, y);
+      } else {
+        const x = this.team === 0 ? r.x - 2 : r.x + r.w + 2;
+        ctx.moveTo(x, r.y);
+        ctx.lineTo(x, r.y + r.h);
+      }
+      ctx.stroke();
+    }
+    if (scoreKeeper && this.team === scoreKeeper.servingTeam && this.serviceTurn) {
       ctx.fillStyle = 'rgba(10,10,10,0.62)';
-      ctx.font = '8px "Courier New"';
+      ctx.font = 'bold 10px "Courier New"';
       ctx.textAlign = 'center';
-      ctx.fillText('AI', r.x + r.w / 2, r.y + r.h / 2 + 3);
+      ctx.fillText(this.serviceTurn, r.x + r.w / 2, r.y + r.h / 2 + 4);
     }
   }
 }
@@ -911,6 +955,14 @@ function setCanvasForOrientation() {
   courtColumn.classList.toggle('portrait', orientation === 'portrait');
   courtColumn.classList.toggle('landscape', orientation === 'landscape');
   W = canvas.width; H = canvas.height;
+  requestAnimationFrame(alignTitleToCourt);
+}
+function alignTitleToCourt() {
+  const courtRect = canvas.getBoundingClientRect();
+  const wrapRect = pongWrap.getBoundingClientRect();
+  const courtCenter = courtRect.left + courtRect.width / 2;
+  const wrapCenter = wrapRect.left + wrapRect.width / 2;
+  pongTitle.style.transform = `translateX(${courtCenter - wrapCenter}px)`;
 }
 function playCoordOfBall() { return ball.playCoord(); }
 function moveCoordOfBall() { return ball.moveCoord(); }
@@ -946,8 +998,17 @@ function clampPlayForTeam(play, team) {
 function zoneCenter(zone) { return (zone.min + zone.max) / 2 - PADDLE_LEN / 2; }
 function clampToZone(v, zone) { return Math.max(zone.min, Math.min(zone.max - PADDLE_LEN, v)); }
 function paddleCenter(p) { return p.center(); }
-function allPaddles() { return [team0Partner, team0Human, team1Partner, team1Human]; }
-function teamPaddlesForDirection(v) { return v < 0 ? [team0Partner, team0Human] : [team1Partner, team1Human]; }
+function playerById(playerId) {
+  const registry = playerIdentityRegistry();
+  return registry ? registry[playerId] || null : null;
+}
+function allPaddles() {
+  const registry = playerIdentityRegistry();
+  return registry
+    ? Object.keys(registry).map(id => registry[id]).sort((a, b) => a.playerId - b.playerId)
+    : [team0Partner, team0Human, team1Partner, team1Human].filter(Boolean);
+}
+function teamPaddlesForDirection(v) { return teamPlayers(v < 0 ? 0 : 1); }
 function teamName(team) {
   if (orientation === 'portrait') return team === 0 ? 'top' : 'bottom';
   return team === 0 ? 'left' : 'right';
@@ -1023,15 +1084,98 @@ function playerDisplayName(p) {
   const lane = p.roleLaneName === 'human' ? 'main' : 'partner';
   return `${teamName(p.team)} ${lane} ${role}`;
 }
+function flagDebugWarning(type, details) {
+  debugWarnings.push({ type, details, at: new Date().toISOString() });
+  if (debugAlertEl) {
+    debugAlertEl.classList.add('visible');
+    debugAlertEl.title = `debug warning: ${type} (check console)`;
+  }
+}
+function expectedPlayerId(team, roleLaneName) {
+  return PLAYER_ID_BY_TEAM_ROLE[`${team}:${roleLaneName}`];
+}
+function playerIdentityKey(player) {
+  return player ? `${player.team}:${player.roleLaneName}` : null;
+}
+function playerIdentitySnapshot(player) {
+  if (!player) return null;
+  return {
+    playerId: player.playerId,
+    expectedPlayerId: expectedPlayerId(player.team, player.roleLaneName),
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    isHuman: player.isHuman,
+    serviceTurn: player.serviceTurn,
+    color: player.color,
+    identityColor: player.identityColor
+  };
+}
+function hasAllPlayerIds() {
+  return PLAYER_DEFS.every(def => playersById[def.playerId]);
+}
+function playerIdentityRegistry() {
+  return hasAllPlayerIds() ? playersById : null;
+}
+function syncPlayerAliasesFromRegistry() {
+  team0Partner = playersById[PLAYER_IDS.team0Partner] || null;
+  team0Human = playersById[PLAYER_IDS.team0Human] || null;
+  team1Partner = playersById[PLAYER_IDS.team1Partner] || null;
+  team1Human = playersById[PLAYER_IDS.team1Human] || null;
+}
+function playersReady() {
+  return !!playerIdentityRegistry();
+}
+function validatePlayerIdentityParity(context = '') {
+  const registry = playerIdentityRegistry();
+  if (!registry) return true;
+  const mismatches = [];
+  const seen = new Set();
+  const expectedRefs = [
+    [PLAYER_IDS.team0Partner, team0Partner, 'team0Partner'],
+    [PLAYER_IDS.team0Human, team0Human, 'team0Human'],
+    [PLAYER_IDS.team1Partner, team1Partner, 'team1Partner'],
+    [PLAYER_IDS.team1Human, team1Human, 'team1Human']
+  ];
+
+  for (const [expectedId, player, refName] of expectedRefs) {
+    if (!player) {
+      mismatches.push({ refName, reason: 'missing player reference' });
+      continue;
+    }
+    if (registry[expectedId] !== player) {
+      mismatches.push({ refName, reason: 'alias does not match player registry', expectedId, registryPlayer: playerIdentitySnapshot(registry[expectedId]), aliasPlayer: playerIdentitySnapshot(player) });
+    }
+    if (player.playerId !== expectedId) {
+      mismatches.push({ refName, reason: 'playerId mismatch', expectedId, actualId: player.playerId, player: playerIdentitySnapshot(player) });
+    }
+    const derivedId = expectedPlayerId(player.team, player.roleLaneName);
+    if (derivedId !== player.playerId) {
+      mismatches.push({ refName, reason: 'team/role derives different ID', derivedId, actualId: player.playerId, player: playerIdentitySnapshot(player) });
+    }
+    if (seen.has(player.playerId)) {
+      mismatches.push({ refName, reason: 'duplicate playerId', actualId: player.playerId, player: playerIdentitySnapshot(player) });
+    }
+    seen.add(player.playerId);
+  }
+
+  if (mismatches.length) {
+    const report = { context, orientation, mismatches };
+    playerIdentityParityMismatches.push(report);
+    flagDebugWarning('player identity parity mismatch', report);
+    console.warn(`player identity parity mismatch${context ? ` (${context})` : ''}`, report);
+    return false;
+  }
+  return true;
+}
 function playerForTeamAndRole(team, roleLaneName) {
-  if (team === 0) return roleLaneName === 'human' ? team0Human : team0Partner;
-  return roleLaneName === 'human' ? team1Human : team1Partner;
+  return playerById(expectedPlayerId(team, roleLaneName));
 }
 function playerForTeamAndPosition(team, positionLaneName) {
-  return allPaddles().find(p => p.team === team && p.positionLaneName === positionLaneName);
+  return teamPlayers(team).find(p => p.positionLaneName === positionLaneName) || null;
 }
 function teamPlayers(team) {
-  return allPaddles().filter(p => p.team === team);
+  return allPaddles().filter(p => p.team === team).sort((a, b) => a.playerId - b.playerId);
 }
 function sideForLane(team, laneName) {
   return laneName === scoreKeeper.laneOnRightAsFacingNet(team) ? 'right' : 'left';
@@ -1059,7 +1203,7 @@ function servingHistoryLabel() {
   return `${teamName(scoreKeeper.servingTeam)} ${color}player ${turn} serving from ${side}`;
 }
 function activeServerForTeam(team = scoreKeeper.servingTeam) {
-  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
+  if (!scoreKeeper || !playersReady()) return null;
   return teamPlayers(team).find(p => p.serviceTurn === scoreKeeper.serverNumber) || null;
 }
 function swapTeamPositionLanes(team) {
@@ -1068,14 +1212,26 @@ function swapTeamPositionLanes(team) {
   const firstLane = players[0].positionLaneName;
   players[0].setPositionLane(players[1].positionLaneName);
   players[1].setPositionLane(firstLane);
+  validatePlayerIdentityParity(`swap team ${team} lanes`);
 }
 function serviceMoveText(team) {
   return teamPlayers(team)
     .map(p => `${describeServiceIdentity(p)} to ${sideForPlayer(p)}`)
     .join('; ');
 }
+function serviceParityPlayerSnapshot(player) {
+  if (!player) return null;
+  return {
+    playerId: player.playerId,
+    color: serviceColorName(player),
+    serviceTurn: player.serviceTurn,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    side: sideForPlayer(player)
+  };
+}
 function validateServingParity(context = '') {
-  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return true;
+  if (!scoreKeeper || !playersReady()) return true;
   const team = scoreKeeper.servingTeam;
   const rightLane = scoreKeeper.laneOnRightAsFacingNet(team);
   const leftLane = scoreKeeper.oppositeLane(rightLane);
@@ -1099,29 +1255,37 @@ function validateServingParity(context = '') {
   }
 
   if (!valid) {
-    console.warn(`service parity mismatch${context ? ` (${context})` : ''}: ${reason}`, {
+    const report = {
       score: scoreKeeper.point(team),
       servingTeam: teamName(team),
       serverNumber: scoreKeeper.serverNumber,
-      firstServer: firstServer ? firstServer.positionLaneName : null,
-      secondServer: secondServer ? secondServer.positionLaneName : null
-    });
+      firstServer: serviceParityPlayerSnapshot(firstServer),
+      secondServer: serviceParityPlayerSnapshot(secondServer),
+      teamPlayers: teamPlayers(team).map(serviceParityPlayerSnapshot)
+    };
+    flagDebugWarning('service parity mismatch', { context, reason, ...report });
+    console.warn(`service parity mismatch${context ? ` (${context})` : ''}: ${reason}`, report);
   }
   return valid;
 }
 function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
-  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  if (!scoreKeeper || !playersReady()) return;
+  validatePlayerIdentityParity(`before assign service team ${team}`);
   for (const p of allPaddles()) p.clearServiceTurn();
-  const firstServerLane = scoreKeeper.laneOnRightAsFacingNet(team);
+  const rightLane = scoreKeeper.laneOnRightAsFacingNet(team);
+  const leftLane = scoreKeeper.oppositeLane(rightLane);
+  const firstServerLane = scoreKeeper.point(team) % 2 === 0 ? rightLane : leftLane;
   const secondServerLane = scoreKeeper.oppositeLane(firstServerLane);
   if (scoreKeeper.openingServerException && team === scoreKeeper.servingTeam) {
     // Opening pickleball exception: the right-side player serves as server #2,
     // and a fault causes immediate side-out instead of giving the teammate a serve.
     const openingServer = playerForTeamAndPosition(team, firstServerLane);
     const openingPartner = playerForTeamAndPosition(team, secondServerLane);
+    openingPartner.setServiceTurn(1);
     openingServer.setServiceTurn(2);
     openingServer.setIdentityColor(PLAYER_COLORS.serviceRight);
     openingPartner.setIdentityColor(PLAYER_COLORS.serviceLeft);
+    validatePlayerIdentityParity(`after opening assign service team ${team}`);
     return;
   }
   const firstServer = playerForTeamAndPosition(team, firstServerLane);
@@ -1130,9 +1294,10 @@ function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   secondServer.setServiceTurn(2);
   firstServer.setIdentityColor(PLAYER_COLORS.serviceRight);
   secondServer.setIdentityColor(PLAYER_COLORS.serviceLeft);
+  validatePlayerIdentityParity(`after assign service team ${team}`);
 }
 function currentServingPlayer() {
-  if (!scoreKeeper || !team0Partner || !team0Human || !team1Partner || !team1Human) return null;
+  if (!scoreKeeper || !playersReady()) return null;
   return activeServerForTeam(scoreKeeper.servingTeam);
 }
 function kitchenReadyPlayCoord(player) {
@@ -1151,29 +1316,27 @@ function serviceFormationPlayCoord(player) {
   return kitchenReadyPlayCoord(player);
 }
 function placePlayersForServe() {
+  validatePlayerIdentityParity('before place players for serve');
   for (const p of allPaddles()) {
     p.play = serviceFormationPlayCoord(p);
     p.vPlay = 0;
     p.move = clampToZone(p.move, p.zone);
   }
+  validatePlayerIdentityParity('after place players for serve');
 }
 function aiFormationPlayCoord(player) {
   const server = currentServingPlayer();
   const receiver = server && scoreKeeper ? receivingPaddleFor(scoreKeeper.servingDir()) : null;
   const serviceFormationActive = serving || (rallyState && rallyState.hitCount <= 1);
   if (serviceFormationActive && server) return serviceFormationPlayCoord(player);
-  const servingServerWaiting = rallyState
+  const servingTeamWaiting = rallyState
     && server
-    && player === server
+    && player.team === rallyState.servingTeamAtStart
     && !rallyState.servingTeamThirdShotComplete();
-  if (servingServerWaiting) return apronReadyPlayCoord(player);
+  if (servingTeamWaiting) return apronReadyPlayCoord(player);
   const servingTeamReady = rallyState
     && rallyState.servingTeamAtStart === player.team
     && rallyState.servingTeamThirdShotComplete();
-  const servingPartnerReady = rallyState
-    && server
-    && player.team === rallyState.servingTeamAtStart
-    && player !== server;
   const receivingPlayerOppositeServer = rallyState
     && server
     && player.isHuman === false
@@ -1185,12 +1348,12 @@ function aiFormationPlayCoord(player) {
     && player.isHuman === false
     && player.team !== rallyState.servingTeamAtStart
     && player === receiver;
-  return servingTeamReady || servingPartnerReady || receivingPlayerOppositeServer || receivingPlayerDiagonalReady
+  return servingTeamReady || receivingPlayerOppositeServer || receivingPlayerDiagonalReady
     ? kitchenReadyPlayCoord(player)
     : player.homePlayCoord();
 }
 function updatePlayerLegend() {
-  if (!playerLegendEl || !team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  if (!playerLegendEl || !playersReady()) return;
   const server = currentServingPlayer();
   playerLegendEl.innerHTML = allPaddles().map(p => {
     const serviceBadge = p.serviceTurn ? ` · S${p.serviceTurn}${p === server ? ' serving' : ''}` : '';
@@ -1227,17 +1390,23 @@ function defaultPlayerColor(team, laneName) {
   if (team === 1 && laneName === 'partner') return PLAYER_COLORS.team1Partner;
   return PLAYER_COLORS.team1Secondary;
 }
-function makePaddle(team, roleLaneName, isHuman, label) {
+function makePaddle(playerId, team, roleLaneName, isHuman, label) {
   const color = isHuman ? PLAYER_COLORS.human : defaultPlayerColor(team, roleLaneName);
   const movementSkill = isHuman ? DEFAULT_MOVEMENT_SKILL : scaledMovementSkill(aiMovementScale);
-  return new Player({ team, roleLaneName, isHuman, label, color, movementSkill });
+  return new Player({ playerId, team, roleLaneName, isHuman, label, color, movementSkill });
+}
+function isHumanControlledDefinition(def) {
+  return humanEnabled && (
+    (def.playerId === PLAYER_IDS.team0Human && !courtGeometry.isPortrait)
+    || (def.playerId === PLAYER_IDS.team1Human && courtGeometry.isPortrait)
+  );
 }
 function humanControlledPlayer() {
-  return courtGeometry.isPortrait ? team1Human : team0Human;
+  return playerById(courtGeometry.isPortrait ? PLAYER_IDS.team1Human : PLAYER_IDS.team0Human);
 }
 function syncHumanMode() {
   if (humanEnabled) clearAutoNextGame();
-  if (!team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  if (!playersReady()) return;
   for (const p of allPaddles()) p.setHuman(false);
   if (humanEnabled) humanControlledPlayer().setHuman(true);
   updateScoreboard();
@@ -1245,16 +1414,18 @@ function syncHumanMode() {
 function syncAISpeed() {
   aiMovementScale = Number(aiSpeedSlider.value) / 100;
   aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
-  if (!team0Partner || !team0Human || !team1Partner || !team1Human) return;
+  if (!playersReady()) return;
   for (const p of allPaddles()) {
     if (!p.isHuman) p.movementSkill = scaledMovementSkill(aiMovementScale);
   }
 }
 function initState() {
-  team0Partner = makePaddle(0, 'partner', false, 'team 0 AI partner');
-  team0Human   = makePaddle(0, 'human', humanEnabled && !courtGeometry.isPortrait, 'team 0 human/AI');
-  team1Partner = makePaddle(1, 'partner', false, 'team 1 AI partner');
-  team1Human   = makePaddle(1, 'human', humanEnabled && courtGeometry.isPortrait, 'team 1 human/AI');
+  playersById = {};
+  for (const def of PLAYER_DEFS) {
+    playersById[def.playerId] = makePaddle(def.playerId, def.team, def.roleLaneName, isHumanControlledDefinition(def), def.label);
+  }
+  syncPlayerAliasesFromRegistry();
+  validatePlayerIdentityParity('init state');
   assignServiceTurnsForTeam(scoreKeeper ? scoreKeeper.servingTeam : (courtGeometry.isPortrait ? 1 : 0));
   placePlayersForServe();
   ball = scoreKeeper ? launchServeBall(scoreKeeper.servingDir()) : launchBall(Math.random() < 0.5 ? 1 : -1);
@@ -1274,7 +1445,9 @@ function rebuildForOrientation(keepScores = true) {
   draw();
 }
 function resetPlayers({ animateTeams = [] } = {}) {
+  validatePlayerIdentityParity('before reset players');
   for (const p of allPaddles()) p.reset({ snapMove: !animateTeams.includes(p.team), snapPlay: !animateTeams.includes(p.team) });
+  validatePlayerIdentityParity('after reset players');
 }
 function updateScoreMessage() { updateScoreboard(); if (running && !paused && !serving) msgEl.textContent = scoreKeeper.statusText(); }
 function startServe(dir) {
@@ -1282,6 +1455,7 @@ function startServe(dir) {
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
   ball = launchServeBall(dir);
+  validatePlayerIdentityParity('start serve identity');
   validateServingParity('start serve');
   rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
   addGameHistory(`serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
@@ -1291,8 +1465,29 @@ function startPointResolution(winner) {
   resolvingPoint = true;
   pendingRallyWinner = winner;
   pendingRallyResult = null;
+  clearBallHandoffAnimation();
   pointResolveStartTime = performance.now();
   msgEl.textContent = `out — ${teamName(winner)} wins the rally`;
+}
+function clearBallHandoffAnimation() {
+  ballHandoffAnimation = null;
+}
+function prepareBallHandoffAnimation() {
+  const server = currentServingPlayer();
+  if (!ball || !server || !scoreKeeper) {
+    clearBallHandoffAnimation();
+    return;
+  }
+  const destination = servePosition(scoreKeeper.servingDir());
+  ballHandoffAnimation = {
+    from: { x: ball.x, y: ball.y },
+    to: courtGeometry.isPortrait
+      ? { x: destination.move, y: destination.play }
+      : { x: destination.play, y: destination.move },
+    serverPlayerId: server.playerId,
+    startedAt: performance.now(),
+    durationMs: RESULT_DISPLAY_DELAY_MS
+  };
 }
 function acknowledgePointResolution() {
   if (pendingRallyWinner === null) return;
@@ -1309,6 +1504,7 @@ function acknowledgePointResolution() {
     const faultingTeam = pendingRallyWinner === null ? 1 - scoreKeeper.servingTeam : 1 - pendingRallyWinner;
     if (result.sideOut) {
       assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+      prepareBallHandoffAnimation();
       addGameHistory(`${teamName(faultingTeam)} team faults. Side out to ${teamName(scoreKeeper.servingTeam)} team`);
       addGameHistory('-------- SIDE OUT');
     } else {
@@ -1348,8 +1544,15 @@ function finishPointResolution() {
   }
   resetPlayers({ animateTeams: result.pointScored ? [scoreKeeper.servingTeam] : [] });
   msgEl.textContent = scoreKeeper.rallyText(result);
+  clearBallHandoffAnimation();
   resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
   startServe(scoreKeeper.servingDir());
+}
+function pointResolutionOverlayText() {
+  if (!pendingRallyResult) return `out · ${teamName(pendingRallyWinner)} wins rally`;
+  if (pendingRallyResult.pointScored) return 'point recorded';
+  if (pendingRallyResult.sideOut) return 'side out';
+  return 'fault recorded';
 }
 function predictInterceptMove(playLine) {
   return ball.predictedMoveAt(playLine, ballSpeedScale);
@@ -1439,6 +1642,7 @@ function recordCollisionWatchMiss(p, winner = null) {
     paddlePlay: p.play,
     paddleMove: p.move
   };
+  flagDebugWarning('collision watchdog', lastCollisionWatchMiss);
   console.warn('collision watchdog: ball centerline crossed paddle without hit', lastCollisionWatchMiss);
 }
 function checkMissedPaddleCollision(paddles, hitRecorded, winner = null) {
@@ -1474,7 +1678,7 @@ function update() {
     if (!pendingRallyResult) {
       ball.advance(ballSpeedScale);
       if (ball.leftWorldBounds() || performance.now() - pointResolveStartTime >= OUT_BALL_FOLLOW_MS) acknowledgePointResolution();
-    } else if (performance.now() - pointResolveStartTime >= POINT_RESOLVE_DELAY_MS) {
+    } else if (performance.now() - pointResolveStartTime >= RESULT_DISPLAY_DELAY_MS) {
       finishPointResolution();
     }
     return;
@@ -1513,12 +1717,6 @@ function drawPickleballCourt() {
     ctx.moveTo(ps, (ms + me) / 2); ctx.lineTo(net - k, (ms + me) / 2); ctx.moveTo(net + k, (ms + me) / 2); ctx.lineTo(pe, (ms + me) / 2);
   }
   ctx.stroke();
-  ctx.font = '10px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.28)';
-  if (courtGeometry.isPortrait) {
-    ctx.fillText('kitchen', me - 38, net - k/2 + 3); ctx.fillText('kitchen', me - 38, net + k/2 + 3);
-  } else {
-    ctx.fillText('kitchen', net - k/2, me - 10); ctx.fillText('kitchen', net + k/2, me - 10);
-  }
 }
 function drawPaddle(p) { p.draw(ctx); }
 function draw() {
@@ -1533,8 +1731,7 @@ function draw() {
     ctx.font = 'bold 15px "Courier New"';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.62)';
-    const text = pendingRallyResult ? 'score recorded' : `out · ${teamName(pendingRallyWinner)} wins rally`;
-    ctx.fillText(text, W/2, H/2 + 28);
+    ctx.fillText(pointResolutionOverlayText(), W/2, H/2 + 28);
   }
   if (!running || paused) { ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, H); }
 }
@@ -1573,6 +1770,7 @@ btnOrient.addEventListener('click', toggleOrientation);
 btnHelp.addEventListener('click', showHelp);
 helpClose.addEventListener('click', hideHelp);
 overlay.addEventListener('click', e => { if (e.target === overlay) hideHelp(); });
+window.addEventListener('resize', alignTitleToCourt);
 speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlider.value) / 100; speedReadout.textContent = `${speedSlider.value}%`; });
 speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupToggle.checked; });
 humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; syncHumanMode(); });
