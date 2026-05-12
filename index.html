@@ -26,6 +26,7 @@
   .pong-ui-row { display: flex; align-items: center; gap: 10px; }
   .pong-ui-row-top { justify-content: center; flex-wrap: nowrap; }
   .pong-ui-row-bottom { display: grid; grid-template-columns: 1fr 1fr auto; column-gap: 14px; align-items: center; }
+  .pong-ui-row-sim { justify-content: center; }
   .pong-ui-row-bottom #speed-control { justify-self: start; }
   .pong-ui-row-bottom #ai-speed-control { justify-self: end; }
   .pong-ui-row-bottom #btn-help { justify-self: end; white-space: nowrap; }
@@ -40,6 +41,9 @@
   #ai-speed-control { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #ai-speed-slider { width: 130px; cursor: pointer; }
   #ai-speed-readout { min-width: 34px; display: inline-block; text-align: right; }
+  #sim-speed-control { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
+  #sim-speed-slider { width: 220px; cursor: pointer; }
+  #sim-speed-readout { min-width: 44px; display: inline-block; text-align: right; }
   @media (max-width: 560px) {
     #pong-ui { width: min(100%, 400px); }
     .pong-ui-row { gap: 6px; }
@@ -51,6 +55,9 @@
     .pong-ui-row-bottom #btn-help { padding-left: 10px; padding-right: 10px; }
     #speed-slider, #ai-speed-slider { width: 58px; }
     #speed-readout, #ai-speed-readout { min-width: 30px; }
+    #sim-speed-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
+    #sim-speed-slider { width: 160px; }
+    #sim-speed-readout { min-width: 38px; }
   }
   #pong-msg { display: none; }
   #door-qr { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-primary); page-break-inside: avoid; }
@@ -197,6 +204,12 @@
         </label>
         <button id="btn-help">? help</button>
       </div>
+      <div class="pong-ui-row pong-ui-row-sim">
+        <label id="sim-speed-control" for="sim-speed-slider">sim speed
+          <input id="sim-speed-slider" type="range" min="25" max="400" value="100" step="25">
+          <span id="sim-speed-readout">1.00x</span>
+        </label>
+      </div>
     </div>
     </div>
     <div id="score-panel" aria-live="polite">
@@ -273,6 +286,8 @@ const OPPONENT_TARGET_UV = {
 };
 const AI_POLICY_SHADOW_ENABLED = true;
 const AI_POLICY_TARGET_TOLERANCE_PX = 0.01;
+const ENABLE_DEBUG_SELF_TESTS = true;
+const DEFAULT_GAME_SEED = 0xC0FFEE;
 const PLAYER_COLORS = {
   human: '#2f80ed',      // keep the human-controlled paddle blue
   orange: '#f2994a',
@@ -310,6 +325,8 @@ const speedupToggle = document.getElementById('speedup-toggle');
 const humanToggle = document.getElementById('human-toggle');
 const aiSpeedSlider = document.getElementById('ai-speed-slider');
 const aiSpeedReadout = document.getElementById('ai-speed-readout');
+const simSpeedSlider = document.getElementById('sim-speed-slider');
+const simSpeedReadout = document.getElementById('sim-speed-readout');
 const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
@@ -330,10 +347,12 @@ let scoreKeeper;
 let rallyState;
 let ballSpeedScale = Number(speedSlider.value) / 100;
 let aiMovementScale = Number(aiSpeedSlider.value) / 100;
+let simulationSpeedScale = Number(simSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
 let ballHandoffAnimation = null;
 let formationStartTime = 0, formationTargets = [];
+let liveSimulationAccumulator = 0;
 let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
@@ -341,9 +360,12 @@ let debugWarnings = [];
 let aiPolicyShadowWarnings = [];
 let playerIdentityParityMismatches = [];
 let playersById = {};
+let configuredGameSeed = DEFAULT_GAME_SEED >>> 0;
+let gameSeed = DEFAULT_GAME_SEED >>> 0;
 let ball, team0Human, team0Partner, team1Human, team1Partner;
 speedReadout.textContent = `${speedSlider.value}%`;
 aiSpeedReadout.textContent = `${aiSpeedSlider.value}%`;
+simSpeedReadout.textContent = `${simulationSpeedScale.toFixed(2)}x`;
 
 const courtGeometry = {
   courtLengthFt: 44,
@@ -549,12 +571,7 @@ class Player {
     }
     const moveOverlap = impactMove + BALL_R >= this.move && impactMove - BALL_R <= this.move + PADDLE_LEN;
     if (!moveOverlap) return false;
-    const offset = impactMove - this.center();
-    const reboundSpeed = progressiveSpeedups ? Math.abs(pv) * 1.045 : Math.abs(pv);
-    setPlayVelocity(this.team === 0 ? reboundSpeed : -reboundSpeed);
-    setMoveVelocity(moveVelocity() + offset * 0.12);
-    setBallPlayCoord(this.team === 0 ? front + BALL_R : front - BALL_R);
-    setBallMoveCoord(impactMove);
+    applyShotDecision(decideShot(this, makeShotContext(this, { front, impactMove, incomingPlayVelocity: pv })));
     return true;
   }
 
@@ -606,7 +623,7 @@ class Ball {
   }
 
   static launch(dir = 1, play = courtGeometry.net, move = (courtGeometry.courtMoveStart + courtGeometry.courtMoveEnd) / 2) {
-    const angle = Math.random() * 0.6 - 0.3;
+    const angle = gameRandomBetween(-0.3, 0.3);
     const playVelocity = Math.cos(angle) * BASE_BALL_SPEED * dir;
     const moveVelocity = Math.sin(angle) * BASE_BALL_SPEED;
     return Ball.fromPlayMove({ play, move, playVelocity, moveVelocity });
@@ -971,6 +988,22 @@ function playVelocity() { return ball.playVelocity(); }
 function moveVelocity() { return ball.moveVelocity(); }
 function setPlayVelocity(v) { ball.setPlayVelocity(v); }
 function setMoveVelocity(v) { ball.setMoveVelocity(v); }
+function setGameSeed(seed = DEFAULT_GAME_SEED) {
+  configuredGameSeed = seed >>> 0;
+  gameSeed = configuredGameSeed;
+  return configuredGameSeed;
+}
+function resetGameRng() {
+  gameSeed = configuredGameSeed;
+  return gameSeed;
+}
+function gameRandom() {
+  gameSeed = (gameSeed * 1664525 + 1013904223) >>> 0;
+  return gameSeed / 0x100000000;
+}
+function gameRandomBetween(min, max) {
+  return min + (max - min) * gameRandom();
+}
 function mphToPixelsPerFrame(mph) {
   const feetPerSecond = mph * 5280 / 3600;
   return feetPerSecond * courtGeometry.pxPerFt / SIMULATION_FPS;
@@ -1126,6 +1159,18 @@ function flagDebugWarning(type, details) {
     debugAlertEl.classList.add('visible');
     debugAlertEl.title = `debug warning: ${type} (check console)`;
   }
+}
+function clearDebugWarnings() {
+  debugWarnings = [];
+  if (debugAlertEl) {
+    debugAlertEl.classList.remove('visible');
+    debugAlertEl.title = 'debug warning: check console';
+  }
+}
+function resetCollisionWatch() {
+  collisionWatchMisses = 0;
+  lastCollisionWatchMiss = null;
+  updateScoreboard();
 }
 function expectedPlayerId(team, roleLaneName) {
   return PLAYER_ID_BY_TEAM_ROLE[`${team}:${roleLaneName}`];
@@ -1382,17 +1427,70 @@ function aiFormationPlayCoord(player) {
     ? kitchenReadyPlayCoord(player)
     : player.homePlayCoord();
 }
+function aiPlayerSnapshot(player, { server = null, receiver = null } = {}) {
+  return {
+    playerId: player.playerId,
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    side: sideForPlayer(player),
+    isHuman: player.isHuman,
+    serviceTurn: player.serviceTurn,
+    play: player.play,
+    move: player.move,
+    vPlay: player.vPlay,
+    vMove: player.vMove,
+    zone: { name: player.zone.name, min: player.zone.min, max: player.zone.max },
+    isServer: player === server,
+    isReceiver: player === receiver
+  };
+}
+function aiBallSnapshot() {
+  return {
+    play: playCoordOfBall(),
+    move: moveCoordOfBall(),
+    previousPlay: ball.previousPlayCoord(),
+    previousMove: ball.previousMoveCoord(),
+    playVelocity: playVelocity(),
+    moveVelocity: moveVelocity()
+  };
+}
 function makeAIContext(player) {
   const pv = playVelocity();
+  const server = currentServingPlayer();
+  const receiver = scoreKeeper ? receivingPaddleFor(scoreKeeper.servingDir()) : null;
+  const front = player.frontCoord();
+  const predictedInterceptMove = predictInterceptMove(front);
   let aimOffsetSample = null;
   return {
     player,
+    playerId: player.playerId,
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    serviceTurn: player.serviceTurn,
+    side: sideForPlayer(player),
+    isServingTeam: scoreKeeper ? player.team === scoreKeeper.servingTeam : false,
+    isServer: player === server,
+    isReceiver: player === receiver,
+    front,
+    zone: { name: player.zone.name, min: player.zone.min, max: player.zone.max },
+    homePlay: player.homePlayCoord(),
+    formationPlay: aiFormationPlayCoord(player),
+    predictedInterceptMove,
+    serverPlayerId: server ? server.playerId : null,
+    receiverPlayerId: receiver ? receiver.playerId : null,
+    servingTeam: scoreKeeper ? scoreKeeper.servingTeam : null,
+    serverNumber: scoreKeeper ? scoreKeeper.serverNumber : null,
+    score: scoreKeeper ? scoreKeeper.points.slice() : [0, 0],
+    players: allPaddles().map(p => aiPlayerSnapshot(p, { server, receiver })),
+    ball: aiBallSnapshot(),
     playVelocity: pv,
     comingToward: (player.team === 0 && pv < 0) || (player.team === 1 && pv > 0),
     serving,
     rallyHitCount: rallyState ? rallyState.hitCount : 0,
     aiAimOffsetSample() {
-      if (aimOffsetSample === null) aimOffsetSample = (Math.random() * 2 - 1) * courtGeometry.ftToPx(AI_AIM_VARIANCE_FT);
+      if (aimOffsetSample === null) aimOffsetSample = gameRandomBetween(-1, 1) * courtGeometry.ftToPx(AI_AIM_VARIANCE_FT);
       return aimOffsetSample;
     }
   };
@@ -1400,11 +1498,11 @@ function makeAIContext(player) {
 const baselineAIPolicy = {
   name: 'baseline',
   decide(player, context) {
-    let targetMove = player.zone.min + (player.zone.max - player.zone.min) / 2;
-    const targetPlay = aiFormationPlayCoord(player);
+    let targetMove = context.zone.min + (context.zone.max - context.zone.min) / 2;
+    const targetPlay = context.formationPlay;
     if (context.comingToward && !context.serving) {
-      const predicted = predictInterceptMove(player.frontCoord());
-      const ownsBall = predicted >= player.zone.min + NO_POACH_BUFFER && predicted <= player.zone.max - NO_POACH_BUFFER;
+      const predicted = context.predictedInterceptMove;
+      const ownsBall = predicted >= context.zone.min + NO_POACH_BUFFER && predicted <= context.zone.max - NO_POACH_BUFFER;
       if (ownsBall) {
         const aimEvent = context.rallyHitCount;
         if (player.aiAimEvent !== aimEvent) {
@@ -1435,6 +1533,54 @@ const AI_POLICIES = {
 };
 const ACTIVE_AI_POLICY_NAME = 'baseline';
 const SHADOW_AI_POLICY_NAME = 'baselineClone';
+const baselineShotPolicy = {
+  name: 'baseline-shot',
+  decide(player, context) {
+    const offset = context.impactMove - context.playerCenter;
+    const reboundSpeed = context.progressiveSpeedups
+      ? Math.abs(context.incomingPlayVelocity) * 1.045
+      : Math.abs(context.incomingPlayVelocity);
+    return {
+      playVelocity: player.team === 0 ? reboundSpeed : -reboundSpeed,
+      moveVelocity: context.ball.moveVelocity + offset * 0.12,
+      play: player.team === 0 ? context.front + BALL_R : context.front - BALL_R,
+      move: context.impactMove
+    };
+  }
+};
+const SHOT_POLICIES = {
+  baseline: baselineShotPolicy
+};
+const ACTIVE_SHOT_POLICY_NAME = 'baseline';
+function shotPolicyByName(name) {
+  return SHOT_POLICIES[name] || SHOT_POLICIES.baseline;
+}
+function activeShotPolicy() {
+  return shotPolicyByName(ACTIVE_SHOT_POLICY_NAME);
+}
+function makeShotContext(player, { front, impactMove, incomingPlayVelocity }) {
+  return {
+    player,
+    playerId: player.playerId,
+    team: player.team,
+    front,
+    impactMove,
+    incomingPlayVelocity,
+    playerCenter: player.center(),
+    progressiveSpeedups,
+    ball: aiBallSnapshot(),
+    rallyHitCount: rallyState ? rallyState.hitCount : 0
+  };
+}
+function decideShot(player, context) {
+  return activeShotPolicy().decide(player, context);
+}
+function applyShotDecision(decision) {
+  setPlayVelocity(decision.playVelocity);
+  setMoveVelocity(decision.moveVelocity);
+  setBallPlayCoord(decision.play);
+  setBallMoveCoord(decision.move);
+}
 function aiPolicyByName(name) {
   return AI_POLICIES[name] || AI_POLICIES.baseline;
 }
@@ -1554,6 +1700,10 @@ function syncAISpeed() {
     if (!p.isHuman) p.movementSkill = scaledMovementSkill(aiMovementScale);
   }
 }
+function syncSimulationSpeed() {
+  simulationSpeedScale = Number(simSpeedSlider.value) / 100;
+  simSpeedReadout.textContent = `${simulationSpeedScale.toFixed(2)}x`;
+}
 function initState() {
   playersById = {};
   for (const def of PLAYER_DEFS) {
@@ -1563,12 +1713,13 @@ function initState() {
   validatePlayerIdentityParity('init state');
   assignServiceTurnsForTeam(scoreKeeper ? scoreKeeper.servingTeam : (courtGeometry.isPortrait ? 1 : 0));
   placePlayersForServe();
-  ball = scoreKeeper ? launchServeBall(scoreKeeper.servingDir()) : launchBall(Math.random() < 0.5 ? 1 : -1);
+  ball = scoreKeeper ? launchServeBall(scoreKeeper.servingDir()) : launchBall(gameRandom() < 0.5 ? 1 : -1);
 }
 function rebuildForOrientation(keepScores = true) {
   clearBallHandoffAnimation();
   formingForServe = false;
   formationTargets = [];
+  liveSimulationAccumulator = 0;
   const oldScores = keepScores ? scoreKeeper.snapshot() : { points: [0, 0], servingTeam: courtGeometry.isPortrait ? 1 : 0, serverNumber: 2, openingServerException: true };
   setCanvasForOrientation();
   scoreKeeper.restore(oldScores);
@@ -1645,6 +1796,7 @@ function updateScoreMessage() { updateScoreboard(); if (running && !paused && !s
 function startServe(dir) {
   resolvingPoint = false; formingForServe = false; pendingRallyWinner = null; pendingRallyResult = null;
   formationTargets = [];
+  liveSimulationAccumulator = 0;
   clearBallHandoffAnimation();
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
@@ -1867,6 +2019,38 @@ function checkMissedPaddleCollision(paddles, hitRecorded, winner = null) {
   const missed = paddles.find(ballCenterlineCrossesPaddle);
   if (missed) recordCollisionWatchMiss(missed, winner);
 }
+function runCollisionWatchSelfTest() {
+  if (!ENABLE_DEBUG_SELF_TESTS) return { ok: false, reason: 'debug self-tests disabled' };
+  const previousBall = ball;
+  const previousMisses = collisionWatchMisses;
+  const previousLastMiss = lastCollisionWatchMiss;
+  const previousWarnings = debugWarnings.slice();
+  const testPaddle = allPaddles()[0];
+  const front = testPaddle.frontCoord();
+  const move = testPaddle.move + PADDLE_LEN / 2;
+  ball = Ball.fromPlayMove({
+    play: testPaddle.team === 0 ? front + BALL_R + 4 : front - BALL_R - 4,
+    move,
+    playVelocity: testPaddle.team === 0 ? -BASE_BALL_SPEED : BASE_BALL_SPEED,
+    moveVelocity: 0
+  });
+  ball.prevX = courtGeometry.isPortrait ? move : (testPaddle.team === 0 ? front + BALL_R + 4 : front - BALL_R - 4);
+  ball.prevY = courtGeometry.isPortrait ? (testPaddle.team === 0 ? front + BALL_R + 4 : front - BALL_R - 4) : move;
+  ball.setPlayCoord(testPaddle.team === 0 ? front - BALL_R - 4 : front + BALL_R + 4);
+  ball.setMoveCoord(move);
+  checkMissedPaddleCollision([testPaddle], false, null);
+  const triggered = collisionWatchMisses === previousMisses + 1;
+  const result = { ok: triggered, misses: collisionWatchMisses, lastCollisionWatchMiss };
+  ball = previousBall;
+  if (!triggered) {
+    collisionWatchMisses = previousMisses;
+    lastCollisionWatchMiss = previousLastMiss;
+    debugWarnings = previousWarnings;
+    if (!debugWarnings.length && debugAlertEl) debugAlertEl.classList.remove('visible');
+  }
+  updateScoreboard();
+  return result;
+}
 function currentBallStepDistance(scale) {
   return Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) * scale;
 }
@@ -1882,11 +2066,28 @@ function advanceLiveBallStep(scale) {
   if (winner !== null) startPointResolution(winner);
   return hitRecorded || winner !== null;
 }
-function advanceLiveBall() {
-  const stepCount = Math.max(1, Math.ceil(currentBallStepDistance(ballSpeedScale) / MAX_BALL_STEP_PX));
-  const stepScale = ballSpeedScale / stepCount;
+function advanceLiveBallWithScale(scale) {
+  const stepCount = Math.max(1, Math.ceil(currentBallStepDistance(scale) / MAX_BALL_STEP_PX));
+  const stepScale = scale / stepCount;
   for (let i = 0; i < stepCount; i++) {
-    if (advanceLiveBallStep(stepScale)) break;
+    if (advanceLiveBallStep(stepScale)) return true;
+  }
+  return false;
+}
+function updateLiveRallyTick(scale = 1) {
+  updatePaddles();
+  return advanceLiveBallWithScale(ballSpeedScale * scale);
+}
+function updateLiveRally() {
+  liveSimulationAccumulator += simulationSpeedScale;
+  while (liveSimulationAccumulator >= 1) {
+    liveSimulationAccumulator -= 1;
+    if (updateLiveRallyTick(1)) return;
+  }
+  if (liveSimulationAccumulator > 0 && simulationSpeedScale < 1) {
+    const partialScale = liveSimulationAccumulator;
+    liveSimulationAccumulator = 0;
+    updateLiveRallyTick(partialScale);
   }
 }
 function update() {
@@ -1901,8 +2102,7 @@ function update() {
     }
     return;
   }
-  updatePaddles();
-  advanceLiveBall();
+  updateLiveRally();
 }
 function currentServeDots() { if (!serving) return ''; const elapsed = performance.now() - serveStartTime; return '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1)); }
 
@@ -1967,7 +2167,8 @@ function startGame() {
   clearAutoNextGame();
   clearBallHandoffAnimation();
   if (anim) cancelAnimationFrame(anim); anim = null;
-  scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; formingForServe = false; formationTargets = []; pendingRallyWinner = null; pendingRallyResult = null;
+  resetGameRng();
+  scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; formingForServe = false; formationTargets = []; liveSimulationAccumulator = 0; pendingRallyWinner = null; pendingRallyResult = null;
   rallyState.resetGameStats();
   resetGameHistory();
   msgEl.textContent = ''; btnStart.textContent = 'restart'; btnPause.textContent = 'pause';
@@ -2002,6 +2203,7 @@ speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlide
 speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupToggle.checked; });
 humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; syncHumanMode(); });
 aiSpeedSlider.addEventListener('input', syncAISpeed);
+simSpeedSlider.addEventListener('input', syncSimulationSpeed);
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === ' ') {
@@ -2021,5 +2223,13 @@ document.addEventListener('keyup', e => { keys[e.key] = false; });
 scoreKeeper = new ScoreKeeper(SCORE_LIMIT);
 rallyState = new RallyState();
 setCanvasForOrientation(); initState(); updateInfoText(); draw();
+window.__picklePongDebug = {
+  runCollisionWatchSelfTest,
+  resetCollisionWatch,
+  clearDebugWarnings,
+  setGameSeed,
+  resetGameRng,
+  getGameSeed: () => ({ configuredGameSeed, currentGameSeed: gameSeed })
+};
 if (shouldAutoStartOnLoad()) startGame();
 </script>
