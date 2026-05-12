@@ -253,16 +253,20 @@ const SERVE_DELAY_MS = 1000;
 const SERVICE_APRON_GAP = 8;
 const OUT_BALL_FOLLOW_MS = 450;
 const RESULT_DISPLAY_DELAY_MS = 2000;
+const FORMATION_RESET_MS = 650;
 const AUTO_NEXT_GAME_DELAY_MS = 3000;
 const NO_POACH_BUFFER = 4;
+const BALL_TRAIL_HISTORY = 8;
+const BALL_TRAIL_GHOSTS = [
+  { index: 7, radius: 0.42, alpha: 0.10 },
+  { index: 5, radius: 0.52, alpha: 0.16 },
+  { index: 3, radius: 0.64, alpha: 0.24 },
+  { index: 1, radius: 0.78, alpha: 0.34 }
+];
 const PLAYER_COLORS = {
   human: '#2f80ed',      // keep the human-controlled paddle blue
-  serviceRight: '#f2994a',
-  serviceLeft: '#27ae60',
-  team0Partner: '#f2994a',
-  team0Secondary: '#27ae60',
-  team1Partner: '#bb6bd9',
-  team1Secondary: '#f2c94c'
+  orange: '#f2994a',
+  green: '#27ae60'
 };
 const PLAYER_IDS = {
   team0Partner: 0,
@@ -277,10 +281,10 @@ const PLAYER_ID_BY_TEAM_ROLE = {
   '1:human': PLAYER_IDS.team1Human
 };
 const PLAYER_DEFS = [
-  { playerId: PLAYER_IDS.team0Partner, team: 0, roleLaneName: 'partner', label: 'team 0 AI partner' },
-  { playerId: PLAYER_IDS.team0Human, team: 0, roleLaneName: 'human', label: 'team 0 human/AI' },
-  { playerId: PLAYER_IDS.team1Partner, team: 1, roleLaneName: 'partner', label: 'team 1 AI partner' },
-  { playerId: PLAYER_IDS.team1Human, team: 1, roleLaneName: 'human', label: 'team 1 human/AI' }
+  { playerId: PLAYER_IDS.team0Partner, team: 0, roleLaneName: 'partner', color: PLAYER_COLORS.orange, colorName: 'ORANGE', label: 'team 0 AI partner' },
+  { playerId: PLAYER_IDS.team0Human, team: 0, roleLaneName: 'human', color: PLAYER_COLORS.green, colorName: 'GREEN', label: 'team 0 human/AI' },
+  { playerId: PLAYER_IDS.team1Partner, team: 1, roleLaneName: 'partner', color: PLAYER_COLORS.orange, colorName: 'ORANGE', label: 'team 1 AI partner' },
+  { playerId: PLAYER_IDS.team1Human, team: 1, roleLaneName: 'human', color: PLAYER_COLORS.green, colorName: 'GREEN', label: 'team 1 human/AI' }
 ];
 
 const msgEl = document.getElementById('pong-msg');
@@ -311,7 +315,7 @@ const playerLegendEl = document.getElementById('player-legend');
 const gameHistoryEl = document.getElementById('game-history');
 
 let orientation = 'portrait';
-let humanEnabled = humanToggle.checked, running = false, paused = false, serving = false, resolvingPoint = false, keys = {}, anim = null;
+let humanEnabled = humanToggle.checked, running = false, paused = false, serving = false, resolvingPoint = false, formingForServe = false, keys = {}, anim = null;
 let scoreKeeper;
 let rallyState;
 let ballSpeedScale = Number(speedSlider.value) / 100;
@@ -319,6 +323,7 @@ let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
 let ballHandoffAnimation = null;
+let formationStartTime = 0, formationTargets = [];
 let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
@@ -374,14 +379,14 @@ const courtGeometry = {
 };
 
 class Player {
-  constructor({ playerId, team, roleLaneName, positionLaneName = roleLaneName, isHuman, label, color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
+  constructor({ playerId, team, roleLaneName, positionLaneName = roleLaneName, isHuman, label, color, identityColor = color, movementSkill = DEFAULT_MOVEMENT_SKILL }) {
     this.playerId = playerId;
     this.team = team;
     this.roleLaneName = roleLaneName;
     this.positionLaneName = positionLaneName;
     this.isHuman = isHuman;
     this.label = label;
-    this.identityColor = color;
+    this.identityColor = identityColor;
     this.color = color;
     this.movementSkill = { ...movementSkill };
     this.serviceTurn = null;
@@ -397,7 +402,7 @@ class Player {
   setHuman(isHuman) {
     this.isHuman = isHuman;
     if (isHuman) this.color = PLAYER_COLORS.human;
-    else this.color = this.identityColor || defaultPlayerColor(this.team, this.roleLaneName);
+    else this.color = this.identityColor || defaultPlayerColor(this.playerId);
     this.movementSkill = isHuman ? { ...DEFAULT_MOVEMENT_SKILL } : scaledMovementSkill(aiMovementScale);
   }
 
@@ -600,6 +605,7 @@ class Ball {
     this.y = y;
     this.prevX = x;
     this.prevY = y;
+    this.trail = [];
     this.vx = vx;
     this.vy = vy;
   }
@@ -645,6 +651,8 @@ class Ball {
   advance(scale) {
     this.prevX = this.x;
     this.prevY = this.y;
+    this.trail.unshift({ x: this.x, y: this.y });
+    if (this.trail.length > BALL_TRAIL_HISTORY) this.trail.length = BALL_TRAIL_HISTORY;
     this.x += this.vx * scale;
     this.y += this.vy * scale;
   }
@@ -685,10 +693,12 @@ class Ball {
   }
 
   draw(ctx) {
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, BALL_R, 0, Math.PI * 2);
-    ctx.fill();
+    for (const ghost of BALL_TRAIL_GHOSTS) {
+      const point = this.trail[ghost.index];
+      if (!point) continue;
+      drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
+    }
+    drawBallAt(this.x, this.y);
   }
 }
 
@@ -1184,10 +1194,8 @@ function sideForPlayer(player) {
   return sideForLane(player.team, player.positionLaneName);
 }
 function serviceColorName(player) {
-  if (player.identityColor === PLAYER_COLORS.serviceRight) return 'ORANGE';
-  if (player.identityColor === PLAYER_COLORS.serviceLeft) return 'GREEN';
-  if (player.color === PLAYER_COLORS.human) return 'BLUE';
-  return 'AI';
+  const def = playerDefinition(player.playerId);
+  return def ? def.colorName : 'AI';
 }
 function describePlayer(player) {
   return `${teamName(player.team)} ${player.roleLaneName === 'human' ? 'main' : 'partner'}`;
@@ -1230,28 +1238,27 @@ function serviceParityPlayerSnapshot(player) {
     side: sideForPlayer(player)
   };
 }
-function validateServingParity(context = '') {
+function validateServingAssignments(context = '') {
   if (!scoreKeeper || !playersReady()) return true;
   const team = scoreKeeper.servingTeam;
   const rightLane = scoreKeeper.laneOnRightAsFacingNet(team);
   const leftLane = scoreKeeper.oppositeLane(rightLane);
   const firstServer = teamPlayers(team).find(p => p.serviceTurn === 1);
   const secondServer = teamPlayers(team).find(p => p.serviceTurn === 2);
+  const activeServer = activeServerForTeam(team);
   let valid = true;
   let reason = '';
 
   if (scoreKeeper.openingServerException) {
-    const expectedSecondLane = scoreKeeper.point(team) % 2 === 0 ? rightLane : leftLane;
-    valid = !!secondServer && secondServer.positionLaneName === expectedSecondLane;
-    reason = `opening server #2 parity expects ${expectedSecondLane}`;
+    valid = scoreKeeper.serverNumber === 2
+      && !!firstServer
+      && !!secondServer
+      && firstServer !== secondServer
+      && activeServer === secondServer;
+    reason = `opening possession expects S2 to remain the active server`;
   } else {
-    const evenScore = scoreKeeper.point(team) % 2 === 0;
-    const expectedFirstLane = evenScore ? rightLane : leftLane;
-    const expectedSecondLane = evenScore ? leftLane : rightLane;
-    valid = !!firstServer && !!secondServer
-      && firstServer.positionLaneName === expectedFirstLane
-      && secondServer.positionLaneName === expectedSecondLane;
-    reason = `score parity expects S1 ${expectedFirstLane}, S2 ${expectedSecondLane}`;
+    valid = !!firstServer && !!secondServer && !!activeServer && firstServer !== secondServer;
+    reason = `serving team needs distinct S1/S2 assignments and an active server`;
   }
 
   if (!valid) {
@@ -1259,12 +1266,15 @@ function validateServingParity(context = '') {
       score: scoreKeeper.point(team),
       servingTeam: teamName(team),
       serverNumber: scoreKeeper.serverNumber,
+      rightLane,
+      leftLane,
+      activeServer: serviceParityPlayerSnapshot(activeServer),
       firstServer: serviceParityPlayerSnapshot(firstServer),
       secondServer: serviceParityPlayerSnapshot(secondServer),
       teamPlayers: teamPlayers(team).map(serviceParityPlayerSnapshot)
     };
-    flagDebugWarning('service parity mismatch', { context, reason, ...report });
-    console.warn(`service parity mismatch${context ? ` (${context})` : ''}: ${reason}`, report);
+    flagDebugWarning('service assignment mismatch', { context, reason, ...report });
+    console.warn(`service assignment mismatch${context ? ` (${context})` : ''}: ${reason}`, report);
   }
   return valid;
 }
@@ -1274,26 +1284,20 @@ function assignServiceTurnsForTeam(team = scoreKeeper.servingTeam) {
   for (const p of allPaddles()) p.clearServiceTurn();
   const rightLane = scoreKeeper.laneOnRightAsFacingNet(team);
   const leftLane = scoreKeeper.oppositeLane(rightLane);
-  const firstServerLane = scoreKeeper.point(team) % 2 === 0 ? rightLane : leftLane;
-  const secondServerLane = scoreKeeper.oppositeLane(firstServerLane);
   if (scoreKeeper.openingServerException && team === scoreKeeper.servingTeam) {
     // Opening pickleball exception: the right-side player serves as server #2,
     // and a fault causes immediate side-out instead of giving the teammate a serve.
-    const openingServer = playerForTeamAndPosition(team, firstServerLane);
-    const openingPartner = playerForTeamAndPosition(team, secondServerLane);
+    const openingServer = playerForTeamAndPosition(team, rightLane);
+    const openingPartner = playerForTeamAndPosition(team, leftLane);
     openingPartner.setServiceTurn(1);
     openingServer.setServiceTurn(2);
-    openingServer.setIdentityColor(PLAYER_COLORS.serviceRight);
-    openingPartner.setIdentityColor(PLAYER_COLORS.serviceLeft);
     validatePlayerIdentityParity(`after opening assign service team ${team}`);
     return;
   }
-  const firstServer = playerForTeamAndPosition(team, firstServerLane);
-  const secondServer = playerForTeamAndPosition(team, secondServerLane);
+  const firstServer = playerForTeamAndPosition(team, rightLane);
+  const secondServer = playerForTeamAndPosition(team, leftLane);
   firstServer.setServiceTurn(1);
   secondServer.setServiceTurn(2);
-  firstServer.setIdentityColor(PLAYER_COLORS.serviceRight);
-  secondServer.setIdentityColor(PLAYER_COLORS.serviceLeft);
   validatePlayerIdentityParity(`after assign service team ${team}`);
 }
 function currentServingPlayer() {
@@ -1384,16 +1388,18 @@ function servePosition(dir = serveDir) {
 function launchServeBall(dir = serveDir) {
   return Ball.crossCourtServe(dir);
 }
-function defaultPlayerColor(team, laneName) {
-  if (team === 0 && laneName === 'partner') return PLAYER_COLORS.team0Partner;
-  if (team === 0 && laneName === 'human') return PLAYER_COLORS.team0Secondary;
-  if (team === 1 && laneName === 'partner') return PLAYER_COLORS.team1Partner;
-  return PLAYER_COLORS.team1Secondary;
+function playerDefinition(playerId) {
+  return PLAYER_DEFS.find(def => def.playerId === playerId) || null;
+}
+function defaultPlayerColor(playerId) {
+  const def = playerDefinition(playerId);
+  return def ? def.color : PLAYER_COLORS.green;
 }
 function makePaddle(playerId, team, roleLaneName, isHuman, label) {
-  const color = isHuman ? PLAYER_COLORS.human : defaultPlayerColor(team, roleLaneName);
+  const identityColor = defaultPlayerColor(playerId);
+  const color = isHuman ? PLAYER_COLORS.human : identityColor;
   const movementSkill = isHuman ? DEFAULT_MOVEMENT_SKILL : scaledMovementSkill(aiMovementScale);
-  return new Player({ playerId, team, roleLaneName, isHuman, label, color, movementSkill });
+  return new Player({ playerId, team, roleLaneName, isHuman, label, color, identityColor, movementSkill });
 }
 function isHumanControlledDefinition(def) {
   return humanEnabled && (
@@ -1431,6 +1437,9 @@ function initState() {
   ball = scoreKeeper ? launchServeBall(scoreKeeper.servingDir()) : launchBall(Math.random() < 0.5 ? 1 : -1);
 }
 function rebuildForOrientation(keepScores = true) {
+  clearBallHandoffAnimation();
+  formingForServe = false;
+  formationTargets = [];
   const oldScores = keepScores ? scoreKeeper.snapshot() : { points: [0, 0], servingTeam: courtGeometry.isPortrait ? 1 : 0, serverNumber: 2, openingServerException: true };
   setCanvasForOrientation();
   scoreKeeper.restore(oldScores);
@@ -1449,14 +1458,70 @@ function resetPlayers({ animateTeams = [] } = {}) {
   for (const p of allPaddles()) p.reset({ snapMove: !animateTeams.includes(p.team), snapPlay: !animateTeams.includes(p.team) });
   validatePlayerIdentityParity('after reset players');
 }
+function startFormationForServe() {
+  validatePlayerIdentityParity('before formation for serve');
+  formationTargets = allPaddles().map(p => {
+    p.setPositionLane(p.positionLaneName);
+    p.aiAimOffset = 0;
+    p.aiAimEvent = null;
+    p.vMove = 0;
+    p.vPlay = 0;
+    return {
+      player: p,
+      fromMove: p.move,
+      fromPlay: p.play,
+      toMove: zoneCenter(p.zone),
+      toPlay: serviceFormationPlayCoord(p)
+    };
+  });
+  if (ballHandoffAnimation) ballHandoffAnimation.attached = true;
+  formingForServe = true;
+  resolvingPoint = false;
+  pendingRallyWinner = null;
+  pendingRallyResult = null;
+  formationStartTime = performance.now();
+  msgEl.textContent = scoreKeeper.statusText();
+}
+function finishFormationForServe() {
+  for (const target of formationTargets) {
+    target.player.move = target.toMove;
+    target.player.play = target.toPlay;
+    target.player.vMove = 0;
+    target.player.vPlay = 0;
+  }
+  formationTargets = [];
+  formingForServe = false;
+  clearBallHandoffAnimation();
+  startServe(scoreKeeper.servingDir());
+}
+function updateFormationForServe() {
+  const elapsed = performance.now() - formationStartTime;
+  const t = Math.max(0, Math.min(1, elapsed / FORMATION_RESET_MS));
+  const eased = easeHandoff(t);
+  for (const target of formationTargets) {
+    target.player.move = target.fromMove + (target.toMove - target.fromMove) * eased;
+    target.player.play = target.fromPlay + (target.toPlay - target.fromPlay) * eased;
+  }
+  if (t >= 1) finishFormationForServe();
+}
+function resumeFormationFromCurrent() {
+  formationTargets = formationTargets.map(target => ({
+    ...target,
+    fromMove: target.player.move,
+    fromPlay: target.player.play
+  }));
+  formationStartTime = performance.now();
+}
 function updateScoreMessage() { updateScoreboard(); if (running && !paused && !serving) msgEl.textContent = scoreKeeper.statusText(); }
 function startServe(dir) {
-  resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
+  resolvingPoint = false; formingForServe = false; pendingRallyWinner = null; pendingRallyResult = null;
+  formationTargets = [];
+  clearBallHandoffAnimation();
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
   ball = launchServeBall(dir);
   validatePlayerIdentityParity('start serve identity');
-  validateServingParity('start serve');
+  validateServingAssignments('start serve');
   rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
   addGameHistory(`serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
   msgEl.textContent = scoreKeeper.serveText('.');
@@ -1472,6 +1537,28 @@ function startPointResolution(winner) {
 function clearBallHandoffAnimation() {
   ballHandoffAnimation = null;
 }
+function easeHandoff(t) {
+  return t * t * (3 - 2 * t);
+}
+function currentBallHandoffPosition() {
+  if (!ballHandoffAnimation) return null;
+  if (ballHandoffAnimation.attached) {
+    const server = playerById(ballHandoffAnimation.serverPlayerId);
+    if (!server) return null;
+    const play = scoreKeeper.servingDir() === 1
+      ? paddleFrontCoord(server) + BALL_R + 3
+      : paddleFrontCoord(server) - BALL_R - 3;
+    const move = paddleCenter(server);
+    return courtGeometry.isPortrait ? { x: move, y: play } : { x: play, y: move };
+  }
+  const elapsed = performance.now() - ballHandoffAnimation.startedAt;
+  const t = Math.max(0, Math.min(1, elapsed / ballHandoffAnimation.durationMs));
+  const eased = easeHandoff(t);
+  return {
+    x: ballHandoffAnimation.from.x + (ballHandoffAnimation.to.x - ballHandoffAnimation.from.x) * eased,
+    y: ballHandoffAnimation.from.y + (ballHandoffAnimation.to.y - ballHandoffAnimation.from.y) * eased
+  };
+}
 function prepareBallHandoffAnimation() {
   const server = currentServingPlayer();
   if (!ball || !server || !scoreKeeper) {
@@ -1485,6 +1572,7 @@ function prepareBallHandoffAnimation() {
       ? { x: destination.move, y: destination.play }
       : { x: destination.play, y: destination.move },
     serverPlayerId: server.playerId,
+    attached: false,
     startedAt: performance.now(),
     durationMs: RESULT_DISPLAY_DELAY_MS
   };
@@ -1498,6 +1586,7 @@ function acknowledgePointResolution() {
   if (result.pointScored) {
     const scoringTeam = scoreKeeper.servingTeam;
     swapTeamPositionLanes(scoringTeam);
+    prepareBallHandoffAnimation();
     addGameHistory(`point ${scoreKeeper.call()} · ${teamName(scoringTeam)} TEAM scored · ${serviceMoveText(scoringTeam)}`);
     addGameHistory('-------- SCORE');
   } else {
@@ -1508,10 +1597,11 @@ function acknowledgePointResolution() {
       addGameHistory(`${teamName(faultingTeam)} team faults. Side out to ${teamName(scoreKeeper.servingTeam)} team`);
       addGameHistory('-------- SIDE OUT');
     } else {
+      prepareBallHandoffAnimation();
       addGameHistory(`${teamName(faultingTeam)} team faults. Second serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
     }
   }
-  validateServingParity('rally result');
+  validateServingAssignments('rally result');
   updateScoreboard();
   msgEl.textContent = result.gameOver ? scoreKeeper.winText(pendingRallyWinner) : scoreKeeper.rallyText(result);
   pointResolveStartTime = performance.now();
@@ -1539,14 +1629,12 @@ function finishPointResolution() {
   if (result.gameOver) {
     running = false; paused = false; serving = false; btnPause.textContent = 'pause';
     msgEl.textContent = scoreKeeper.winText(pendingRallyWinner);
+    clearBallHandoffAnimation();
     resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
     btnStart.textContent = 'restart'; draw(); scheduleAutoNextGame(); return;
   }
-  resetPlayers({ animateTeams: result.pointScored ? [scoreKeeper.servingTeam] : [] });
   msgEl.textContent = scoreKeeper.rallyText(result);
-  clearBallHandoffAnimation();
-  resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
-  startServe(scoreKeeper.servingDir());
+  startFormationForServe();
 }
 function pointResolutionOverlayText() {
   if (!pendingRallyResult) return `out · ${teamName(pendingRallyWinner)} wins rally`;
@@ -1674,6 +1762,7 @@ function advanceLiveBall() {
 }
 function update() {
   if (serving) { updatePaddles(); updateServe(); return; }
+  if (formingForServe) { updateFormationForServe(); return; }
   if (resolvingPoint) {
     if (!pendingRallyResult) {
       ball.advance(ballSpeedScale);
@@ -1719,10 +1808,18 @@ function drawPickleballCourt() {
   ctx.stroke();
 }
 function drawPaddle(p) { p.draw(ctx); }
+function drawBallAt(x, y, color = '#ffffff', radius = BALL_R) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
 function draw() {
   ctx.clearRect(0, 0, W, H); drawPickleballCourt();
   for (const p of allPaddles()) drawPaddle(p);
-  ball.draw(ctx);
+  const handoffBall = currentBallHandoffPosition();
+  if (handoffBall) drawBallAt(handoffBall.x, handoffBall.y, 'rgba(210,210,210,0.78)');
+  else ball.draw(ctx);
   updateScoreboard();
   if (serving) {
     ctx.font = 'bold 42px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.fillText(currentServeDots(), W/2, H/2 - 24);
@@ -1739,8 +1836,9 @@ function loop() { if (!running || paused) { anim = null; return; } update(); dra
 function ensureLoop() { if (!anim && running && !paused) anim = requestAnimationFrame(loop); }
 function startGame() {
   clearAutoNextGame();
+  clearBallHandoffAnimation();
   if (anim) cancelAnimationFrame(anim); anim = null;
-  scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; pendingRallyWinner = null; pendingRallyResult = null;
+  scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; formingForServe = false; formationTargets = []; pendingRallyWinner = null; pendingRallyResult = null;
   rallyState.resetGameStats();
   resetGameHistory();
   msgEl.textContent = ''; btnStart.textContent = 'restart'; btnPause.textContent = 'pause';
@@ -1754,7 +1852,7 @@ function togglePause() {
   if (!running) return;
   paused = !paused; btnPause.textContent = paused ? 'resume' : 'pause';
   if (paused) { if (anim) cancelAnimationFrame(anim); anim = null; msgEl.textContent = scoreKeeper.pauseText(); draw(); }
-  else { if (serving) serveStartTime = performance.now(); else if (resolvingPoint) pointResolveStartTime = performance.now(); else updateScoreMessage(); ensureLoop(); }
+  else { if (serving) serveStartTime = performance.now(); else if (resolvingPoint) pointResolveStartTime = performance.now(); else if (formingForServe) resumeFormationFromCurrent(); else updateScoreMessage(); ensureLoop(); }
 }
 function toggleOrientation() {
   if (anim) { cancelAnimationFrame(anim); anim = null; }
