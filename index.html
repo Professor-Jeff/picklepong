@@ -12,13 +12,14 @@
   .score-label { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.06em; }
   .score-value { font-size: 30px; font-weight: 700; line-height: 1; color: var(--color-text-primary); }
   #score-note { margin-top: 10px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.8; }
-  #rally-hit-note, #rally-last-note, #rally-stats-note, #serve-physics-note, #collision-watch-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
+  #rally-hit-note, #rally-last-note, #rally-stats-note, #serve-physics-note, #top-rally-speed-note, #collision-watch-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
   #player-legend { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid rgba(255,255,255,0.10); display: flex; flex-direction: column; gap: 6px; }
   .player-legend-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.04em; white-space: nowrap; }
   .player-swatch { width: 11px; height: 11px; border-radius: 2px; border: 0.5px solid rgba(255,255,255,0.32); display: inline-block; flex: 0 0 auto; }
   .player-legend-role { color: var(--color-text-primary); opacity: 0.92; }
   #history-title { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid rgba(255,255,255,0.10); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-secondary); }
-  #game-history { margin-top: 7px; width: 220px; max-height: 160px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 5px; font-size: 10px; line-height: 1.35; color: var(--color-text-secondary); letter-spacing: 0.03em; }
+  #game-history { margin-top: 7px; width: 220px; min-height: 44px; max-height: 160px; overflow-y: auto; padding: 7px 6px 7px 7px; display: flex; flex-direction: column; gap: 5px; font-size: 10px; line-height: 1.35; color: var(--color-text-secondary); letter-spacing: 0.03em; border: 1px solid rgba(255,255,255,0.42); border-radius: 4px; background: transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.28); box-sizing: border-box; }
+  #game-history:focus-visible { outline: 1px solid rgba(255,255,255,0.32); outline-offset: 2px; }
   .history-entry { border-left: 2px solid rgba(255,255,255,0.14); padding-left: 6px; }
   #pong-canvas { border: 1.5px solid var(--color-border-secondary); border-radius: 4px; background: #0a0a0a; display: block; }
   #court-column { display: flex; flex-direction: column; align-items: flex-start; flex: 0 0 auto; }
@@ -44,6 +45,12 @@
   #sim-speed-control { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #sim-speed-slider { width: 220px; cursor: pointer; }
   #sim-speed-readout { min-width: 44px; display: inline-block; text-align: right; }
+  .pong-ui-row-replay { display: none; justify-content: center; }
+  .pong-ui-row-replay.visible { display: flex; }
+  #replay-control { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
+  #replay-slider { width: 300px; cursor: pointer; }
+  #replay-readout { min-width: 52px; display: inline-block; text-align: right; }
+  #btn-replay-prev, #btn-replay-next { width: 30px; padding-left: 0; padding-right: 0; text-align: center; }
   @media (max-width: 560px) {
     #pong-ui { width: min(100%, 400px); }
     .pong-ui-row { gap: 6px; }
@@ -58,6 +65,10 @@
     #sim-speed-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
     #sim-speed-slider { width: 160px; }
     #sim-speed-readout { min-width: 38px; }
+    #replay-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
+    #replay-slider { width: 170px; }
+    #replay-readout { min-width: 46px; }
+    #btn-replay-prev, #btn-replay-next { width: 26px; padding-left: 0; padding-right: 0; }
   }
   #pong-msg { display: none; }
   #door-qr { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-primary); page-break-inside: avoid; }
@@ -106,9 +117,10 @@
   #help-close { display: block; width: 100%; margin-top: 18px; padding: 8px; background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 4px; color: #e0e0e0; font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 0.08em; cursor: pointer; }
   #help-close:hover { background: rgba(255,255,255,0.13); }
   #canvas-wrap { position: relative; display: inline-block; }
-  #court-column.portrait { width: 472px; }
-  #court-column.landscape { width: 784px; }
-  #canvas-wrap.portrait { margin-left: 72px; }
+  #court-column.portrait { width: 492px; }
+  #court-column.landscape { width: 824px; }
+  #canvas-wrap.portrait { margin-left: 52px; }
+  #canvas-wrap.portrait #pong-canvas { width: 400px; height: auto; }
   #canvas-wrap.portrait ~ #pong-msg,
   #canvas-wrap.portrait ~ #pong-ui { width: 620px; margin-left: -38px; }
   #canvas-wrap.portrait .court-score { left: -68px; min-width: 56px; flex-direction: column; align-items: flex-end; gap: 2px; transform: translateY(-50%); }
@@ -117,7 +129,7 @@
   #canvas-wrap.portrait #door-qr { left: calc(100% + 18px); bottom: 0; }
   #canvas-wrap.landscape { margin-top: 44px; }
   #canvas-wrap.landscape ~ #pong-msg,
-  #canvas-wrap.landscape ~ #pong-ui { width: 620px; margin-left: 82px; }
+  #canvas-wrap.landscape ~ #pong-ui { width: 620px; margin-left: 102px; }
   #canvas-wrap.landscape .court-score { top: -42px; min-width: 82px; justify-content: center; transform: translateX(-50%); }
   #canvas-wrap.landscape .court-score-team0 { left: 25%; }
   #canvas-wrap.landscape .court-score-team1 { left: 75%; }
@@ -210,6 +222,14 @@
           <span id="sim-speed-readout">1.00x</span>
         </label>
       </div>
+      <div id="replay-row" class="pong-ui-row pong-ui-row-replay">
+        <div id="replay-control">replay
+          <button id="btn-replay-prev" type="button" title="previous replay frame" aria-label="previous replay frame">-</button>
+          <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+          <button id="btn-replay-next" type="button" title="next replay frame" aria-label="next replay frame">+</button>
+          <span id="replay-readout">--</span>
+        </div>
+      </div>
     </div>
     </div>
     <div id="score-panel" aria-live="polite">
@@ -219,10 +239,11 @@
       <div id="rally-last-note">last rally 0 · max 0</div>
       <div id="rally-stats-note">rallies avg -- · med -- · &lt;10 --</div>
       <div id="serve-physics-note">serve -- mph · return --</div>
+      <div id="top-rally-speed-note">top rally -- mph</div>
       <div id="collision-watch-note">collision watch clear</div>
       <div id="player-legend" aria-label="player colors"></div>
       <div id="history-title">history</div>
-      <div id="game-history" aria-label="game history"></div>
+      <div id="game-history" aria-label="game history" tabindex="0"></div>
     </div>
   </div>
 </div>
@@ -234,6 +255,8 @@ const courtColumn = document.getElementById('court-column');
 const pongWrap = document.getElementById('pong-wrap');
 const pongTitle = document.getElementById('pong-title');
 let W = canvas.width, H = canvas.height;
+const BASE_PORTRAIT_W = 400, BASE_PORTRAIT_H = 784;
+const BASE_LANDSCAPE_W = 784, BASE_LANDSCAPE_H = 400;
 const PADDLE_THICK = 10, PADDLE_LEN = 46, BALL_R = 6;
 // Inertia tuning: human paddles accelerate while a key is held,
 // then slide briefly under friction when released.
@@ -252,6 +275,7 @@ function scaledMovementSkill(scale) {
   };
 }
 const PADDLE_FRICTION = 0.84;
+const HUMAN_RELEASE_FRICTION = 0.58;
 const AI_MOVE_SETTLE_PX = 8;
 const AI_DEPTH_SETTLE_PX = 5;
 const AI_SETTLE_FRICTION = 0.62;
@@ -269,6 +293,7 @@ const RESULT_DISPLAY_DELAY_MS = 2000;
 const FORMATION_RESET_MS = 650;
 const AUTO_NEXT_GAME_DELAY_MS = 3000;
 const NO_POACH_BUFFER = 4;
+const POACH_WATCH_OVERLAP_FT = 2.5;
 const BALL_TRAIL_HISTORY = 8;
 const BALL_TRAIL_GHOSTS = [
   { index: 7, radius: 0.42, alpha: 0.10 },
@@ -276,6 +301,7 @@ const BALL_TRAIL_GHOSTS = [
   { index: 3, radius: 0.64, alpha: 0.24 },
   { index: 1, radius: 0.78, alpha: 0.34 }
 ];
+const REPLAY_BUFFER_MS = 15000;
 const OPPONENT_TARGET_UV = {
   farLeft: -1,
   center: 0,
@@ -327,6 +353,11 @@ const aiSpeedSlider = document.getElementById('ai-speed-slider');
 const aiSpeedReadout = document.getElementById('ai-speed-readout');
 const simSpeedSlider = document.getElementById('sim-speed-slider');
 const simSpeedReadout = document.getElementById('sim-speed-readout');
+const replayRow = document.getElementById('replay-row');
+const replaySlider = document.getElementById('replay-slider');
+const replayReadout = document.getElementById('replay-readout');
+const replayPrevBtn = document.getElementById('btn-replay-prev');
+const replayNextBtn = document.getElementById('btn-replay-next');
 const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
@@ -337,6 +368,7 @@ const rallyHitNoteEl = document.getElementById('rally-hit-note');
 const rallyLastNoteEl = document.getElementById('rally-last-note');
 const rallyStatsNoteEl = document.getElementById('rally-stats-note');
 const servePhysicsNoteEl = document.getElementById('serve-physics-note');
+const topRallySpeedNoteEl = document.getElementById('top-rally-speed-note');
 const collisionWatchNoteEl = document.getElementById('collision-watch-note');
 const playerLegendEl = document.getElementById('player-legend');
 const gameHistoryEl = document.getElementById('game-history');
@@ -350,9 +382,11 @@ let aiMovementScale = Number(aiSpeedSlider.value) / 100;
 let simulationSpeedScale = Number(simSpeedSlider.value) / 100;
 let progressiveSpeedups = speedupToggle.checked;
 let serveDir = 1, serveStartTime = 0, pointResolveStartTime = 0, pendingRallyWinner = null, pendingRallyResult = null;
+let faultMarker = null;
 let ballHandoffAnimation = null;
 let formationStartTime = 0, formationTargets = [];
 let liveSimulationAccumulator = 0;
+let replayBuffer = [], lastRallyReplay = null, rallyReplayStartAt = 0, replayScrubbing = false;
 let autoNextGameTimer = null;
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
@@ -372,20 +406,31 @@ const courtGeometry = {
   courtWidthFt: 20,
   baselineApronFt: 2.5,
   sidelineApronFt: 2.5,
+  baselineOutOfPlayFt: 1.25,
+  sidelineOutOfPlayFt: 1.25,
   kitchenDepthFt: 7,
   sideInset: 28,
   get isPortrait() { return orientation === 'portrait'; },
-  get worldLengthFt() { return this.courtLengthFt + this.baselineApronFt * 2; },
-  get worldWidthFt() { return this.courtWidthFt + this.sidelineApronFt * 2; },
+  get playableWorldLengthFt() { return this.courtLengthFt + this.baselineApronFt * 2; },
+  get playableWorldWidthFt() { return this.courtWidthFt + this.sidelineApronFt * 2; },
+  get worldLengthFt() { return this.playableWorldLengthFt + this.baselineOutOfPlayFt * 2; },
+  get worldWidthFt() { return this.playableWorldWidthFt + this.sidelineOutOfPlayFt * 2; },
   get playSize() { return this.isPortrait ? H : W; },
   get moveSize() { return this.isPortrait ? W : H; },
-  get pxPerFt() { return this.playSize / this.worldLengthFt; },
+  get basePlaySize() { return this.isPortrait ? BASE_PORTRAIT_H : BASE_LANDSCAPE_W; },
+  get pxPerFt() { return this.basePlaySize / this.playableWorldLengthFt; },
   get baselineApronPx() { return this.baselineApronFt * this.pxPerFt; },
   get sidelineApronPx() { return this.sidelineApronFt * this.pxPerFt; },
-  get courtPlayStart() { return this.baselineApronPx; },
-  get courtPlayEnd() { return this.playSize - this.baselineApronPx; },
-  get courtMoveStart() { return this.sidelineApronPx; },
-  get courtMoveEnd() { return this.moveSize - this.sidelineApronPx; },
+  get baselineOutOfPlayPx() { return this.baselineOutOfPlayFt * this.pxPerFt; },
+  get sidelineOutOfPlayPx() { return this.sidelineOutOfPlayFt * this.pxPerFt; },
+  get apronPlayStart() { return this.baselineOutOfPlayPx; },
+  get apronPlayEnd() { return this.playSize - this.baselineOutOfPlayPx; },
+  get apronMoveStart() { return this.sidelineOutOfPlayPx; },
+  get apronMoveEnd() { return this.moveSize - this.sidelineOutOfPlayPx; },
+  get courtPlayStart() { return this.apronPlayStart + this.baselineApronPx; },
+  get courtPlayEnd() { return this.apronPlayEnd - this.baselineApronPx; },
+  get courtMoveStart() { return this.apronMoveStart + this.sidelineApronPx; },
+  get courtMoveEnd() { return this.apronMoveEnd - this.sidelineApronPx; },
   get courtPlaySize() { return this.courtPlayEnd - this.courtPlayStart; },
   get courtMoveSize() { return this.courtMoveEnd - this.courtMoveStart; },
   get net() { return this.courtPlayStart + this.courtPlaySize / 2; },
@@ -404,8 +449,8 @@ const courtGeometry = {
       : { name, min: this.courtMoveStart + this.courtMoveSize / 2, max: this.courtMoveEnd };
   },
   scoreForPlayCoord(v) {
-    if (v < -BALL_R) return 1;
-    if (v > this.playSize + BALL_R) return 0;
+    if (v < this.apronPlayStart) return 1;
+    if (v > this.apronPlayEnd) return 0;
     return null;
   }
 
@@ -518,8 +563,8 @@ class Player {
       this.vPlay += playDirection * this.movementSkill.depthAcceleration;
       this.vPlay = Math.max(-this.movementSkill.depthMaxSpeed, Math.min(this.movementSkill.depthMaxSpeed, this.vPlay));
     }
-    this.applyMoveVelocity();
-    this.applyPlayVelocity();
+    this.applyMoveVelocity(moveDirection === 0 ? HUMAN_RELEASE_FRICTION : PADDLE_FRICTION);
+    this.applyPlayVelocity(playDirection === 0 ? HUMAN_RELEASE_FRICTION : PADDLE_FRICTION);
   }
 
   moveToward(targetMove, speed) {
@@ -886,6 +931,8 @@ class RallyState {
     this.currentServeMph = null;
     this.lastServeMph = null;
     this.lastServeReturnMs = null;
+    this.currentTopSpeedMph = null;
+    this.lastTopSpeedMph = null;
   }
 
   finishRally() {
@@ -893,6 +940,7 @@ class RallyState {
     this.maxRallyHitCount = Math.max(this.maxRallyHitCount || 0, this.hitCount);
     if (!this.rallyLengths) this.rallyLengths = [];
     this.rallyLengths.push(this.hitCount);
+    this.lastTopSpeedMph = this.currentTopSpeedMph;
     return this.lastRallyHitCount;
   }
 
@@ -903,7 +951,13 @@ class RallyState {
     this.currentServeMph = serveSpeedMph;
     this.lastServeMph = serveSpeedMph;
     this.lastServeReturnMs = null;
+    this.currentTopSpeedMph = serveSpeedMph;
     if (server) this.recordHit(server, 'serve');
+  }
+
+  recordSpeedMph(mph) {
+    if (!Number.isFinite(mph)) return;
+    this.currentTopSpeedMph = Math.max(this.currentTopSpeedMph || 0, mph);
   }
 
   markServeReleased(time) {
@@ -957,15 +1011,26 @@ class RallyState {
       rallyLengths: (this.rallyLengths || []).slice(),
       currentServeMph: this.currentServeMph,
       lastServeMph: this.lastServeMph,
-      lastServeReturnMs: this.lastServeReturnMs
+      lastServeReturnMs: this.lastServeReturnMs,
+      currentTopSpeedMph: this.currentTopSpeedMph,
+      lastTopSpeedMph: this.lastTopSpeedMph
     };
   }
 }
 
 
 function setCanvasForOrientation() {
-  if (orientation === 'portrait') { canvas.width = 400; canvas.height = 784; }
-  else { canvas.width = 784; canvas.height = 400; }
+  const pxPerFt = BASE_PORTRAIT_H / (courtGeometry.courtLengthFt + courtGeometry.baselineApronFt * 2);
+  const outPlay = courtGeometry.baselineOutOfPlayFt * pxPerFt * 2;
+  const outMove = courtGeometry.sidelineOutOfPlayFt * pxPerFt * 2;
+  if (orientation === 'portrait') {
+    canvas.width = Math.round(BASE_PORTRAIT_W + outMove);
+    canvas.height = Math.round(BASE_PORTRAIT_H + outPlay);
+  }
+  else {
+    canvas.width = Math.round(BASE_LANDSCAPE_W + outPlay);
+    canvas.height = Math.round(BASE_LANDSCAPE_H + outMove);
+  }
   canvasWrap.classList.toggle('portrait', orientation === 'portrait');
   canvasWrap.classList.toggle('landscape', orientation === 'landscape');
   courtColumn.classList.toggle('portrait', orientation === 'portrait');
@@ -1029,6 +1094,14 @@ function clampPlayForTeam(play, team) {
 }
 function zoneCenter(zone) { return (zone.min + zone.max) / 2 - PADDLE_LEN / 2; }
 function clampToZone(v, zone) { return Math.max(zone.min, Math.min(zone.max - PADDLE_LEN, v)); }
+function watchZoneFor(zone) {
+  const overlap = courtGeometry.ftToPx(POACH_WATCH_OVERLAP_FT);
+  const center = (courtGeometry.courtMoveStart + courtGeometry.courtMoveEnd) / 2;
+  const isLeftLane = zone.max <= center;
+  return isLeftLane
+    ? { min: zone.min + NO_POACH_BUFFER, max: Math.min(courtGeometry.courtMoveEnd, zone.max + overlap) }
+    : { min: Math.max(courtGeometry.courtMoveStart, zone.min - overlap), max: zone.max - NO_POACH_BUFFER };
+}
 function paddleCenter(p) { return p.center(); }
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
@@ -1101,6 +1174,115 @@ function resetGameHistory() {
   gameHistoryEntries = [];
   renderGameHistory();
 }
+function resetReplayCache() {
+  replayBuffer = [];
+  lastRallyReplay = null;
+  rallyReplayStartAt = 0;
+  replayScrubbing = false;
+  updateReplayControls();
+}
+function currentServerPlayerId() {
+  const server = currentServingPlayer();
+  return server ? server.playerId : null;
+}
+function replaySnapshot(now = performance.now()) {
+  if (!ball) return null;
+  return {
+    at: now,
+    orientation,
+    width: W,
+    height: H,
+    state: {
+      running,
+      paused,
+      serving,
+      resolvingPoint,
+      pendingRallyResult: pendingRallyResult ? { ...pendingRallyResult } : null,
+      pendingRallyWinner,
+      faultMarker: faultMarker ? { ...faultMarker } : null,
+      servingTeam: scoreKeeper ? scoreKeeper.servingTeam : null,
+      serverPlayerId: currentServerPlayerId(),
+      overlayText: resolvingPoint ? pointResolutionOverlayText() : null,
+      serveDots: serving ? currentServeDots() : ''
+    },
+    ball: {
+      x: ball.x,
+      y: ball.y,
+      trail: (ball.trail || []).map(point => ({ x: point.x, y: point.y }))
+    },
+    paddles: allPaddles().map(p => ({
+      playerId: p.playerId,
+      team: p.team,
+      color: p.color,
+      play: p.play,
+      move: p.move,
+      serviceTurn: p.serviceTurn
+    }))
+  };
+}
+function recordReplaySnapshot({ force = false } = {}) {
+  if (!running || paused) return;
+  const now = performance.now();
+  const snapshot = replaySnapshot(now);
+  if (!snapshot) return;
+  replayBuffer.push(snapshot);
+  const oldest = now - REPLAY_BUFFER_MS;
+  replayBuffer = replayBuffer.filter(frame => frame.at >= oldest);
+}
+function beginRallyReplayWindow() {
+  rallyReplayStartAt = performance.now();
+  recordReplaySnapshot({ force: true });
+}
+function freezeLastRallyReplay(eventType) {
+  recordReplaySnapshot({ force: true });
+  const startAt = rallyReplayStartAt || (performance.now() - REPLAY_BUFFER_MS);
+  const frames = replayBuffer.filter(frame => frame.at >= startAt);
+  const frozenFaultMarker = faultMarker ? { ...faultMarker } : null;
+  lastRallyReplay = frames.length
+    ? { eventType, faultMarker: frozenFaultMarker, frames: frames.map(frame => ({ ...frame, state: { ...frame.state }, ball: { ...frame.ball, trail: frame.ball.trail.map(point => ({ ...point })) }, paddles: frame.paddles.map(p => ({ ...p })) })) }
+    : null;
+  replayScrubbing = false;
+  updateReplayControls();
+}
+function replayFrame() {
+  if (!lastRallyReplay || !lastRallyReplay.frames.length) return null;
+  const index = Math.max(0, Math.min(lastRallyReplay.frames.length - 1, Number(replaySlider.value) || 0));
+  return lastRallyReplay.frames[index];
+}
+function replayFrameElapsedText(frame) {
+  if (!lastRallyReplay || !lastRallyReplay.frames.length || !frame) return '--';
+  const start = lastRallyReplay.frames[0].at;
+  return `${((frame.at - start) / 1000).toFixed(1)}s`;
+}
+function updateReplayControls() {
+  if (!replayRow || !replaySlider || !replayReadout) return;
+  const hasReplay = !!(lastRallyReplay && lastRallyReplay.frames.length > 1);
+  const available = !!(paused && hasReplay);
+  replayRow.classList.toggle('visible', paused);
+  replaySlider.disabled = !available;
+  if (replayPrevBtn) replayPrevBtn.disabled = !available;
+  if (replayNextBtn) replayNextBtn.disabled = !available;
+  if (!available) {
+    replaySlider.max = '0';
+    replaySlider.value = '0';
+    replayReadout.textContent = paused ? 'none' : '--';
+    replayScrubbing = false;
+    return;
+  }
+  const max = lastRallyReplay.frames.length - 1;
+  replaySlider.max = String(max);
+  if (!replayScrubbing) replaySlider.value = String(max);
+  replayReadout.textContent = replayFrameElapsedText(replayFrame());
+}
+function stepReplayFrame(delta) {
+  if (!paused || !lastRallyReplay || !lastRallyReplay.frames.length) return;
+  const max = lastRallyReplay.frames.length - 1;
+  const next = Math.max(0, Math.min(max, (Number(replaySlider.value) || 0) + delta));
+  replaySlider.value = String(next);
+  replayScrubbing = true;
+  replayReadout.textContent = replayFrameElapsedText(replayFrame());
+  draw();
+}
 function updateScoreboard() {
   scoreKeeper.updateBoard();
   updateRallyHitReadout();
@@ -1141,6 +1323,12 @@ function updateRallyHitReadout() {
     servePhysicsNoteEl.textContent = mph
       ? `serve ${mph.toFixed(1)} mph · return ${returnSeconds}`
       : 'serve -- mph · return --';
+  }
+  if (topRallySpeedNoteEl) {
+    const topMph = rallyState.currentTopSpeedMph || rallyState.lastTopSpeedMph;
+    topRallySpeedNoteEl.textContent = topMph
+      ? `top rally ${topMph.toFixed(1)} mph`
+      : 'top rally -- mph';
   }
   if (collisionWatchNoteEl) {
     collisionWatchNoteEl.textContent = collisionWatchMisses
@@ -1475,6 +1663,7 @@ function makeAIContext(player) {
     isReceiver: player === receiver,
     front,
     zone: { name: player.zone.name, min: player.zone.min, max: player.zone.max },
+    watchZone: watchZoneFor(player.zone),
     homePlay: player.homePlayCoord(),
     formationPlay: aiFormationPlayCoord(player),
     predictedInterceptMove,
@@ -1502,7 +1691,7 @@ const baselineAIPolicy = {
     const targetPlay = context.formationPlay;
     if (context.comingToward && !context.serving) {
       const predicted = context.predictedInterceptMove;
-      const ownsBall = predicted >= context.zone.min + NO_POACH_BUFFER && predicted <= context.zone.max - NO_POACH_BUFFER;
+      const ownsBall = predicted >= context.watchZone.min && predicted <= context.watchZone.max;
       if (ownsBall) {
         const aimEvent = context.rallyHitCount;
         if (player.aiAimEvent !== aimEvent) {
@@ -1720,6 +1909,7 @@ function rebuildForOrientation(keepScores = true) {
   formingForServe = false;
   formationTargets = [];
   liveSimulationAccumulator = 0;
+  resetReplayCache();
   const oldScores = keepScores ? scoreKeeper.snapshot() : { points: [0, 0], servingTeam: courtGeometry.isPortrait ? 1 : 0, serverNumber: 2, openingServerException: true };
   setCanvasForOrientation();
   scoreKeeper.restore(oldScores);
@@ -1774,6 +1964,19 @@ function finishFormationForServe() {
   clearBallHandoffAnimation();
   startServe(scoreKeeper.servingDir());
 }
+function clearFaultMarker() {
+  faultMarker = null;
+}
+function makeFaultMarker(play, move, winner, { clampToCourt = false } = {}) {
+  const markerPlay = clampToCourt ? Math.max(0, Math.min(courtGeometry.playSize, play)) : play;
+  const markerMove = clampToCourt ? Math.max(courtGeometry.courtMoveStart, Math.min(courtGeometry.courtMoveEnd, move)) : move;
+  return courtGeometry.isPortrait
+    ? { x: markerMove, y: markerPlay, play: markerPlay, move: markerMove, winner }
+    : { x: markerPlay, y: markerMove, play: markerPlay, move: markerMove, winner };
+}
+function markerForGameDecision(winner) {
+  return makeFaultMarker(ball.playCoord(), ball.moveCoord(), winner);
+}
 function updateFormationForServe() {
   const elapsed = performance.now() - formationStartTime;
   const t = Math.max(0, Math.min(1, elapsed / FORMATION_RESET_MS));
@@ -1798,6 +2001,7 @@ function startServe(dir) {
   formationTargets = [];
   liveSimulationAccumulator = 0;
   clearBallHandoffAnimation();
+  clearFaultMarker();
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
   ball = launchServeBall(dir);
@@ -1806,6 +2010,7 @@ function startServe(dir) {
   rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
   addGameHistory(`serve ${scoreKeeper.call()} · ${servingHistoryLabel()}`);
   msgEl.textContent = scoreKeeper.serveText('.');
+  beginRallyReplayWindow();
 }
 function startPointResolution(winner) {
   resolvingPoint = true;
@@ -1861,6 +2066,7 @@ function prepareBallHandoffAnimation() {
 function acknowledgePointResolution() {
   if (pendingRallyWinner === null) return;
   if (pendingRallyResult) return;
+  freezeLastRallyReplay('rally result');
   rallyState.finishRally();
   const result = scoreKeeper.recordRallyWinner(pendingRallyWinner);
   pendingRallyResult = result;
@@ -2056,6 +2262,7 @@ function currentBallStepDistance(scale) {
 }
 function advanceLiveBallStep(scale) {
   ball.advance(scale);
+  if (rallyState) rallyState.recordSpeedMph(ballSpeedMph(ball));
   ball.bounceOffMoveWalls();
   const defendingPaddles = teamPaddlesForDirection(playVelocity());
   let hitRecorded = false;
@@ -2063,7 +2270,11 @@ function advanceLiveBallStep(scale) {
   ball.limitSpeed();
   const winner = courtGeometry.scoreForPlayCoord(playCoordOfBall());
   checkMissedPaddleCollision(defendingPaddles, hitRecorded, winner);
-  if (winner !== null) startPointResolution(winner);
+  if (winner !== null) {
+    faultMarker = markerForGameDecision(winner);
+    recordReplaySnapshot({ force: true });
+    startPointResolution(winner);
+  }
   return hitRecorded || winner !== null;
 }
 function advanceLiveBallWithScale(scale) {
@@ -2110,7 +2321,12 @@ function drawPickleballCourt() {
   const net = courtGeometry.net, k = courtGeometry.kitchenPx;
   const ps = courtGeometry.courtPlayStart, pe = courtGeometry.courtPlayEnd;
   const ms = courtGeometry.courtMoveStart, me = courtGeometry.courtMoveEnd;
-  ctx.fillStyle = '#2F6B55'; ctx.fillRect(0, 0, W, H);
+  const aps = courtGeometry.apronPlayStart, ape = courtGeometry.apronPlayEnd;
+  const ams = courtGeometry.apronMoveStart, ame = courtGeometry.apronMoveEnd;
+  ctx.fillStyle = '#5b6460'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#2F6B55';
+  if (courtGeometry.isPortrait) ctx.fillRect(ams, aps, ame - ams, ape - aps);
+  else ctx.fillRect(aps, ams, ape - aps, ame - ams);
   ctx.fillStyle = '#3859A3';
   if (courtGeometry.isPortrait) ctx.fillRect(ms, ps, courtGeometry.courtMoveSize, courtGeometry.courtPlaySize);
   else ctx.fillRect(ps, ms, courtGeometry.courtPlaySize, courtGeometry.courtMoveSize);
@@ -2143,12 +2359,118 @@ function drawBallAt(x, y, color = '#ffffff', radius = BALL_R) {
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
 }
+function drawFaultMarker(marker = faultMarker) {
+  if (!marker) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(224, 48, 42, 0.88)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(marker.x, marker.y, BALL_R * 1.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(224, 48, 42, 0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(marker.x, marker.y, BALL_R * 1.9, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+function paddleReplayRect(p) {
+  return courtGeometry.isPortrait
+    ? { x: p.move, y: p.play, w: PADDLE_LEN, h: PADDLE_THICK }
+    : { x: p.play, y: p.move, w: PADDLE_THICK, h: PADDLE_LEN };
+}
+function drawReplayPaddle(p, snapshot) {
+  const r = paddleReplayRect(p);
+  ctx.fillStyle = p.color;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  if (p.playerId === snapshot.state.serverPlayerId) {
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    if (courtGeometry.isPortrait) {
+      const y = p.team === 0 ? r.y - 2 : r.y + r.h + 2;
+      ctx.moveTo(r.x, y);
+      ctx.lineTo(r.x + r.w, y);
+    } else {
+      const x = p.team === 0 ? r.x - 2 : r.x + r.w + 2;
+      ctx.moveTo(x, r.y);
+      ctx.lineTo(x, r.y + r.h);
+    }
+    ctx.stroke();
+  }
+  if (p.team === snapshot.state.servingTeam && p.serviceTurn) {
+    ctx.fillStyle = 'rgba(10,10,10,0.62)';
+    ctx.font = 'bold 10px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.serviceTurn, r.x + r.w / 2, r.y + r.h / 2 + 4);
+  }
+}
+function drawReplayBall(snapshot) {
+  const trail = snapshot.ball.trail || [];
+  for (const ghost of BALL_TRAIL_GHOSTS) {
+    const point = trail[ghost.index];
+    if (!point) continue;
+    drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
+  }
+  drawBallAt(snapshot.ball.x, snapshot.ball.y);
+}
+function drawReplaySnapshot(snapshot) {
+  if (!snapshot || snapshot.orientation !== orientation || snapshot.width !== W || snapshot.height !== H) {
+    replayScrubbing = false;
+    draw();
+    return;
+  }
+  ctx.clearRect(0, 0, W, H);
+  drawPickleballCourt();
+  for (const p of snapshot.paddles) drawReplayPaddle(p, snapshot);
+  drawReplayBall(snapshot);
+  drawFaultMarker(lastRallyReplay && lastRallyReplay.faultMarker ? lastRallyReplay.faultMarker : snapshot.state.faultMarker);
+  if (snapshot.state.serveDots) {
+    ctx.font = 'bold 42px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.fillText(snapshot.state.serveDots, W/2, H/2 - 24);
+  }
+  if (snapshot.state.overlayText) {
+    ctx.font = 'bold 15px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.fillText(snapshot.state.overlayText, W/2, H/2 + 28);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = 'bold 11px "Courier New"';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,255,255,0.72)';
+  ctx.fillText(`replay ${replayFrameElapsedText(snapshot)}`, 12, H - 14);
+  drawPauseCue();
+}
+function drawPauseCue() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 213, 74, 0.92)';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([]);
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  ctx.fillStyle = 'rgba(255, 213, 74, 0.88)';
+  ctx.font = 'bold 12px "Courier New"';
+  ctx.textAlign = 'right';
+  ctx.fillText('paused', W - 12, 20);
+  ctx.restore();
+}
 function draw() {
+  if (paused && replayScrubbing) {
+    drawReplaySnapshot(replayFrame());
+    return;
+  }
   ctx.clearRect(0, 0, W, H); drawPickleballCourt();
   for (const p of allPaddles()) drawPaddle(p);
   const handoffBall = currentBallHandoffPosition();
   if (handoffBall) drawBallAt(handoffBall.x, handoffBall.y, 'rgba(210,210,210,0.78)');
   else ball.draw(ctx);
+  drawFaultMarker();
   updateScoreboard();
   if (serving) {
     ctx.font = 'bold 42px "Courier New"'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.fillText(currentServeDots(), W/2, H/2 - 24);
@@ -2160,13 +2482,16 @@ function draw() {
     ctx.fillText(pointResolutionOverlayText(), W/2, H/2 + 28);
   }
   if (!running || paused) { ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, H); }
+  if (paused) drawPauseCue();
 }
-function loop() { if (!running || paused) { anim = null; return; } update(); draw(); anim = requestAnimationFrame(loop); }
+function loop() { if (!running || paused) { anim = null; return; } update(); recordReplaySnapshot(); draw(); anim = requestAnimationFrame(loop); }
 function ensureLoop() { if (!anim && running && !paused) anim = requestAnimationFrame(loop); }
 function startGame() {
   clearAutoNextGame();
   clearBallHandoffAnimation();
+  clearFaultMarker();
   if (anim) cancelAnimationFrame(anim); anim = null;
+  resetReplayCache();
   resetGameRng();
   scoreKeeper.reset(courtGeometry.isPortrait ? 1 : 0); running = true; paused = false; serving = false; resolvingPoint = false; formingForServe = false; formationTargets = []; liveSimulationAccumulator = 0; pendingRallyWinner = null; pendingRallyResult = null;
   rallyState.resetGameStats();
@@ -2181,8 +2506,19 @@ function shouldAutoStartOnLoad() {
 function togglePause() {
   if (!running) return;
   paused = !paused; btnPause.textContent = paused ? 'resume' : 'pause';
-  if (paused) { if (anim) cancelAnimationFrame(anim); anim = null; msgEl.textContent = scoreKeeper.pauseText(); draw(); }
-  else { if (serving) serveStartTime = performance.now(); else if (resolvingPoint) pointResolveStartTime = performance.now(); else if (formingForServe) resumeFormationFromCurrent(); else updateScoreMessage(); ensureLoop(); }
+  if (paused) {
+    if (anim) cancelAnimationFrame(anim);
+    anim = null;
+    msgEl.textContent = scoreKeeper.pauseText();
+    updateReplayControls();
+    draw();
+  }
+  else {
+    replayScrubbing = false;
+    updateReplayControls();
+    if (serving) serveStartTime = performance.now(); else if (resolvingPoint) pointResolveStartTime = performance.now(); else if (formingForServe) resumeFormationFromCurrent(); else updateScoreMessage();
+    ensureLoop();
+  }
 }
 function toggleOrientation() {
   if (anim) { cancelAnimationFrame(anim); anim = null; }
@@ -2204,6 +2540,22 @@ speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupTo
 humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; syncHumanMode(); });
 aiSpeedSlider.addEventListener('input', syncAISpeed);
 simSpeedSlider.addEventListener('input', syncSimulationSpeed);
+replaySlider.addEventListener('input', () => {
+  if (!paused || !lastRallyReplay) return;
+  replayScrubbing = true;
+  replayReadout.textContent = replayFrameElapsedText(replayFrame());
+  draw();
+});
+replaySlider.addEventListener('keydown', e => {
+  if (!paused || !lastRallyReplay) return;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    e.stopPropagation();
+    stepReplayFrame(e.key === 'ArrowLeft' ? -1 : 1);
+  }
+});
+if (replayPrevBtn) replayPrevBtn.addEventListener('click', () => stepReplayFrame(-1));
+if (replayNextBtn) replayNextBtn.addEventListener('click', () => stepReplayFrame(1));
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === ' ') {
