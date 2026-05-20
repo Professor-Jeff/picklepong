@@ -12,7 +12,7 @@
   .score-label { font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.06em; }
   .score-value { font-size: 30px; font-weight: 700; line-height: 1; color: var(--color-text-primary); }
   #score-note { margin-top: 10px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.8; }
-  #rally-hit-note, #rally-last-note, #rally-stats-note, #serve-physics-note, #top-rally-speed-note, #collision-watch-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
+  #rally-hit-note, #rally-last-note, #rally-stats-note, #serve-physics-note, #top-rally-speed-note, #max-lob-height-note, #min-net-clearance-note, #collision-watch-note { margin-top: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.05em; opacity: 0.92; }
   #player-legend { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid rgba(255,255,255,0.10); display: flex; flex-direction: column; gap: 6px; }
   .player-legend-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--color-text-secondary); letter-spacing: 0.04em; white-space: nowrap; }
   .player-swatch { width: 11px; height: 11px; border-radius: 2px; border: 0.5px solid rgba(255,255,255,0.32); display: inline-block; flex: 0 0 auto; }
@@ -47,7 +47,11 @@
   #sim-speed-readout { min-width: 44px; display: inline-block; text-align: right; }
   .pong-ui-row-replay { display: none; justify-content: center; }
   .pong-ui-row-replay.visible { display: flex; }
+  .pong-ui-row-restore { display: none; justify-content: center; }
+  .pong-ui-row-restore.visible { display: flex; }
   #replay-control { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
+  #restore-control { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
+  #restore-status { display: inline-flex; align-items: center; padding: 0 2px; border: 0; background: transparent; color: rgba(255,255,255,0.52); font-size: 11px; letter-spacing: 0.04em; text-transform: lowercase; }
   #replay-slider { width: 300px; cursor: pointer; }
   #replay-readout { min-width: 52px; display: inline-block; text-align: right; }
   #btn-replay-prev, #btn-replay-next { width: 30px; padding-left: 0; padding-right: 0; text-align: center; }
@@ -66,6 +70,7 @@
     #sim-speed-slider { width: 160px; }
     #sim-speed-readout { min-width: 38px; }
     #replay-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
+    #restore-control { gap: 5px; font-size: 10px; letter-spacing: 0.03em; }
     #replay-slider { width: 170px; }
     #replay-readout { min-width: 46px; }
     #btn-replay-prev, #btn-replay-next { width: 26px; padding-left: 0; padding-right: 0; }
@@ -196,6 +201,7 @@
         <button id="btn-start">start</button>
         <button id="btn-pause">pause</button>
         <button id="btn-orient">landscape</button>
+        <button id="btn-physics">pong physics</button>
         <label id="speedup-control" for="speedup-toggle">
           <input id="speedup-toggle" type="checkbox" checked>
           speedups
@@ -230,6 +236,13 @@
           <span id="replay-readout">--</span>
         </div>
       </div>
+      <div id="restore-row" class="pong-ui-row pong-ui-row-restore">
+        <div id="restore-control"><span id="restore-status">state</span>
+          <button id="btn-save-game" type="button">save</button>
+          <button id="btn-restore-game" type="button">restore</button>
+          <button id="btn-clear-saved-game" type="button">clear</button>
+        </div>
+      </div>
     </div>
     </div>
     <div id="score-panel" aria-live="polite">
@@ -240,6 +253,8 @@
       <div id="rally-stats-note">rallies avg -- · med -- · &lt;10 --</div>
       <div id="serve-physics-note">serve -- mph · return --</div>
       <div id="top-rally-speed-note">top rally -- mph</div>
+      <div id="max-lob-height-note">max lob -- ft</div>
+      <div id="min-net-clearance-note">net min -- ft</div>
       <div id="collision-watch-note">collision watch clear</div>
       <div id="player-legend" aria-label="player colors"></div>
       <div id="history-title">history</div>
@@ -312,6 +327,35 @@ const OPPONENT_TARGET_UV = {
 };
 const AI_POLICY_SHADOW_ENABLED = true;
 const AI_POLICY_TARGET_TOLERANCE_PX = 0.01;
+const WORLD_SHADOW_ENABLED = true;
+const WORLD_SHADOW_TOLERANCE_PX = 0.001;
+const WORLD_MODEL_VERSION = 1;
+const DEFAULT_PHYSICS_MODEL_NAME = 'pong';
+const BALL_FIXED_HEIGHT_FT = 3.2;
+const BALL_GROUND_Z_FT = 0.375;
+const WORLD_GRAVITY_FT_PER_SEC2 = 32.174;
+const NET_HEIGHT_FT = 3.0;
+const GRAVITY_SHOT_PROFILE = {
+  targetV: 0.85,
+  targetUJitter: 0.38,
+  handBattleNetDistanceFt: 9,
+  feetTargetDepthFt: 1.25,
+  feetTargetLateralJitterFt: 1.2,
+  handBattleNetClearanceFt: 0.18,
+  handBattleNetClearanceJitterFt: 0.35,
+  handBattleMinFlightTimeSec: 0.18,
+  handBattleMaxFlightTimeSec: 0.9,
+  apexAboveNetFt: 1.25,
+  netClearanceFt: 0.5,
+  netClearanceJitterFt: 1.25
+};
+const PLAYER_REACH_MIN_FT = 0;
+const PLAYER_REACH_MAX_FT = 6;
+const PLAYER_BODY_HEIGHT_FT = 6;
+const PLAYER_CONTACT_HEIGHT_FT = 3;
+const PADDLE_CONTACT_HALF_HEIGHT_FT = 3;
+const SAVED_PAUSED_GAME_VERSION = 1;
+const SAVED_PAUSED_GAME_KEY = 'picklePong.savedPausedGame.v1';
 const ENABLE_DEBUG_SELF_TESTS = true;
 const DEFAULT_GAME_SEED = 0xC0FFEE;
 const PLAYER_COLORS = {
@@ -337,11 +381,13 @@ const PLAYER_DEFS = [
   { playerId: PLAYER_IDS.team1Partner, team: 1, roleLaneName: 'partner', color: PLAYER_COLORS.orange, colorName: 'ORANGE', label: 'team 1 AI partner' },
   { playerId: PLAYER_IDS.team1Human, team: 1, roleLaneName: 'human', color: PLAYER_COLORS.green, colorName: 'GREEN', label: 'team 1 human/AI' }
 ];
+let activePhysicsModelName = DEFAULT_PHYSICS_MODEL_NAME;
 
 const msgEl = document.getElementById('pong-msg');
 const btnStart = document.getElementById('btn-start');
 const btnPause = document.getElementById('btn-pause');
 const btnOrient = document.getElementById('btn-orient');
+const btnPhysics = document.getElementById('btn-physics');
 const btnHelp = document.getElementById('btn-help');
 const overlay = document.getElementById('help-overlay');
 const helpClose = document.getElementById('help-close');
@@ -358,6 +404,11 @@ const replaySlider = document.getElementById('replay-slider');
 const replayReadout = document.getElementById('replay-readout');
 const replayPrevBtn = document.getElementById('btn-replay-prev');
 const replayNextBtn = document.getElementById('btn-replay-next');
+const restoreRow = document.getElementById('restore-row');
+const restoreStatus = document.getElementById('restore-status');
+const saveGameBtn = document.getElementById('btn-save-game');
+const restoreGameBtn = document.getElementById('btn-restore-game');
+const clearSavedGameBtn = document.getElementById('btn-clear-saved-game');
 const scoreTeam0El = document.getElementById('score-team0');
 const scoreTeam1El = document.getElementById('score-team1');
 const scoreTeam0LabelEl = document.getElementById('score-team0-label');
@@ -369,6 +420,8 @@ const rallyLastNoteEl = document.getElementById('rally-last-note');
 const rallyStatsNoteEl = document.getElementById('rally-stats-note');
 const servePhysicsNoteEl = document.getElementById('serve-physics-note');
 const topRallySpeedNoteEl = document.getElementById('top-rally-speed-note');
+const maxLobHeightNoteEl = document.getElementById('max-lob-height-note');
+const minNetClearanceNoteEl = document.getElementById('min-net-clearance-note');
 const collisionWatchNoteEl = document.getElementById('collision-watch-note');
 const playerLegendEl = document.getElementById('player-legend');
 const gameHistoryEl = document.getElementById('game-history');
@@ -392,7 +445,13 @@ let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let debugWarnings = [];
 let aiPolicyShadowWarnings = [];
+let shotPolicyShadowWarnings = [];
+let aiWorldTargetWarnings = [];
+let aiWorldInputWarnings = [];
+let worldAIContextWarnings = [];
+let worldPhysicsWarnings = [];
 let playerIdentityParityMismatches = [];
+let worldShadowMismatches = [];
 let playersById = {};
 let configuredGameSeed = DEFAULT_GAME_SEED >>> 0;
 let gameSeed = DEFAULT_GAME_SEED >>> 0;
@@ -597,7 +656,7 @@ class Player {
     this.updateAIPosition(decideAIPosition(this));
   }
 
-  checkHit() {
+  legacyCheckHit() {
     const front = this.frontCoord();
     const pv = playVelocity();
     const movingToward = this.team === 0 ? pv < 0 : pv > 0;
@@ -659,6 +718,10 @@ class Ball {
     this.trail = [];
     this.vx = vx;
     this.vy = vy;
+    this.worldZ = BALL_FIXED_HEIGHT_FT;
+    this.prevWorldZ = BALL_FIXED_HEIGHT_FT;
+    this.worldVz = 0;
+    this.flightState = 'fixed';
   }
 
   static fromPlayMove({ play, move, playVelocity, moveVelocity }) {
@@ -699,7 +762,7 @@ class Ball {
   setPlayVelocity(v) { if (courtGeometry.isPortrait) this.vy = v; else this.vx = v; }
   setMoveVelocity(v) { if (courtGeometry.isPortrait) this.vx = v; else this.vy = v; }
 
-  advance(scale) {
+  legacyAdvance(scale) {
     this.prevX = this.x;
     this.prevY = this.y;
     this.trail.unshift({ x: this.x, y: this.y });
@@ -708,7 +771,7 @@ class Ball {
     this.y += this.vy * scale;
   }
 
-  bounceOffMoveWalls() {
+  legacyBounceOffMoveWalls() {
     if (this.moveCoord() - BALL_R <= courtGeometry.courtMoveStart) {
       this.setMoveCoord(courtGeometry.courtMoveStart + BALL_R);
       this.setMoveVelocity(Math.abs(this.moveVelocity()));
@@ -749,7 +812,7 @@ class Ball {
       if (!point) continue;
       drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
     }
-    drawBallAt(this.x, this.y);
+    drawBallAt(this.x, this.y, ballColorForFlightState(this.flightState));
   }
 }
 
@@ -933,6 +996,12 @@ class RallyState {
     this.lastServeReturnMs = null;
     this.currentTopSpeedMph = null;
     this.lastTopSpeedMph = null;
+    this.currentMaxLobHeightFt = null;
+    this.lastMaxLobHeightFt = null;
+    this.currentLastNetClearanceFt = null;
+    this.lastNetClearanceFt = null;
+    this.currentMinNetClearanceFt = null;
+    this.lastMinNetClearanceFt = null;
   }
 
   finishRally() {
@@ -941,6 +1010,9 @@ class RallyState {
     if (!this.rallyLengths) this.rallyLengths = [];
     this.rallyLengths.push(this.hitCount);
     this.lastTopSpeedMph = this.currentTopSpeedMph;
+    this.lastMaxLobHeightFt = this.currentMaxLobHeightFt;
+    this.lastNetClearanceFt = this.currentLastNetClearanceFt;
+    this.lastMinNetClearanceFt = this.currentMinNetClearanceFt;
     return this.lastRallyHitCount;
   }
 
@@ -952,12 +1024,28 @@ class RallyState {
     this.lastServeMph = serveSpeedMph;
     this.lastServeReturnMs = null;
     this.currentTopSpeedMph = serveSpeedMph;
+    this.currentMaxLobHeightFt = null;
+    this.currentLastNetClearanceFt = null;
+    this.currentMinNetClearanceFt = null;
     if (server) this.recordHit(server, 'serve');
   }
 
   recordSpeedMph(mph) {
     if (!Number.isFinite(mph)) return;
     this.currentTopSpeedMph = Math.max(this.currentTopSpeedMph || 0, mph);
+  }
+
+  recordLobHeightFt(heightFt) {
+    if (!Number.isFinite(heightFt)) return;
+    this.currentMaxLobHeightFt = Math.max(this.currentMaxLobHeightFt || 0, heightFt);
+  }
+
+  recordNetClearanceFt(clearanceFt) {
+    if (!Number.isFinite(clearanceFt)) return;
+    this.currentLastNetClearanceFt = clearanceFt;
+    this.currentMinNetClearanceFt = this.currentMinNetClearanceFt === null
+      ? clearanceFt
+      : Math.min(this.currentMinNetClearanceFt, clearanceFt);
   }
 
   markServeReleased(time) {
@@ -1013,8 +1101,39 @@ class RallyState {
       lastServeMph: this.lastServeMph,
       lastServeReturnMs: this.lastServeReturnMs,
       currentTopSpeedMph: this.currentTopSpeedMph,
-      lastTopSpeedMph: this.lastTopSpeedMph
+      lastTopSpeedMph: this.lastTopSpeedMph,
+      currentMaxLobHeightFt: this.currentMaxLobHeightFt,
+      lastMaxLobHeightFt: this.lastMaxLobHeightFt,
+      currentLastNetClearanceFt: this.currentLastNetClearanceFt,
+      lastNetClearanceFt: this.lastNetClearanceFt,
+      currentMinNetClearanceFt: this.currentMinNetClearanceFt,
+      lastMinNetClearanceFt: this.lastMinNetClearanceFt
     };
+  }
+
+  restore(state) {
+    if (!state) return;
+    this.hitCount = state.hitCount || 0;
+    this.teamHits = Array.isArray(state.teamHits) ? state.teamHits.slice() : [0, 0];
+    this.lastHit = state.lastHit ? { ...state.lastHit } : null;
+    this.events = Array.isArray(state.events) ? state.events.map(hit => ({ ...hit })) : [];
+    this.servingTeamAtStart = state.servingTeamAtStart ?? null;
+    this.serveDir = state.serveDir || 0;
+    this.serveReleaseTime = state.serveReleaseTime ?? null;
+    this.lastRallyHitCount = state.lastRallyHitCount || 0;
+    this.maxRallyHitCount = state.maxRallyHitCount || 0;
+    this.rallyLengths = Array.isArray(state.rallyLengths) ? state.rallyLengths.slice() : [];
+    this.currentServeMph = state.currentServeMph ?? null;
+    this.lastServeMph = state.lastServeMph ?? null;
+    this.lastServeReturnMs = state.lastServeReturnMs ?? null;
+    this.currentTopSpeedMph = state.currentTopSpeedMph ?? null;
+    this.lastTopSpeedMph = state.lastTopSpeedMph ?? null;
+    this.currentMaxLobHeightFt = state.currentMaxLobHeightFt ?? null;
+    this.lastMaxLobHeightFt = state.lastMaxLobHeightFt ?? null;
+    this.currentLastNetClearanceFt = state.currentLastNetClearanceFt ?? null;
+    this.lastNetClearanceFt = state.lastNetClearanceFt ?? null;
+    this.currentMinNetClearanceFt = state.currentMinNetClearanceFt ?? null;
+    this.lastMinNetClearanceFt = state.lastMinNetClearanceFt ?? null;
   }
 }
 
@@ -1053,6 +1172,927 @@ function playVelocity() { return ball.playVelocity(); }
 function moveVelocity() { return ball.moveVelocity(); }
 function setPlayVelocity(v) { ball.setPlayVelocity(v); }
 function setMoveVelocity(v) { ball.setMoveVelocity(v); }
+function pixelsToWorldFeet(px) {
+  return px / courtGeometry.pxPerFt;
+}
+function worldFeetToPixels(feet) {
+  return feet * courtGeometry.pxPerFt;
+}
+function pixelsPerFrameToFeetPerSecond(pxPerFrame) {
+  return pixelsToWorldFeet(pxPerFrame) * SIMULATION_FPS;
+}
+function feetPerSecondToPixelsPerFrame(feetPerSecond) {
+  return worldFeetToPixels(feetPerSecond) / SIMULATION_FPS;
+}
+function playMoveToWorld({ play, move, z = 0 }) {
+  return {
+    x: pixelsToWorldFeet(move),
+    y: pixelsToWorldFeet(play),
+    z
+  };
+}
+function worldToPlayMove({ x, y }) {
+  return {
+    play: worldFeetToPixels(y),
+    move: worldFeetToPixels(x)
+  };
+}
+function worldPositionFromPlayMove({ play, move, z = 0 }) {
+  return playMoveToWorld({ play, move, z });
+}
+function worldVelocityFromPlayMove({ playVelocity = 0, moveVelocity = 0, zVelocity = 0 }) {
+  return {
+    x: pixelsPerFrameToFeetPerSecond(moveVelocity),
+    y: pixelsPerFrameToFeetPerSecond(playVelocity),
+    z: zVelocity
+  };
+}
+function resetBallFixedZ(b = ball) {
+  if (!b) return;
+  b.prevWorldZ = BALL_FIXED_HEIGHT_FT;
+  b.worldZ = BALL_FIXED_HEIGHT_FT;
+  b.worldVz = 0;
+  b.flightState = 'fixed';
+}
+function ballZ(b = ball) {
+  return b && Number.isFinite(b.worldZ) ? b.worldZ : BALL_FIXED_HEIGHT_FT;
+}
+function previousBallZ(b = ball) {
+  return b && Number.isFinite(b.prevWorldZ) ? b.prevWorldZ : ballZ(b);
+}
+function ballZVelocity(b = ball) {
+  return b && Number.isFinite(b.worldVz) ? b.worldVz : 0;
+}
+function classifyBallFlightState({ z = BALL_FIXED_HEIGHT_FT, vz = 0, fixedZ = true } = {}) {
+  if (fixedZ) return 'fixed';
+  if (z <= BALL_GROUND_Z_FT + 0.01 && vz <= 0) return 'grounded';
+  if (vz > 0.25) return 'rising';
+  if (vz < -0.25) return 'falling';
+  return 'floating';
+}
+function ballColorForFlightState(state = 'fixed') {
+  switch (state) {
+    case 'rising': return '#8FD3FF';
+    case 'falling': return '#FFC857';
+    case 'grounded': return '#E85D5D';
+    case 'floating': return '#D7E8FF';
+    case 'fixed':
+    default:
+      return '#ffffff';
+  }
+}
+function ballFlightStateSnapshot() {
+  const snapshot = worldBallSnapshot(ball);
+  if (!snapshot) return null;
+  return {
+    physicsModel: activePhysicsModelName,
+    state: snapshot.flightState,
+    z: snapshot.position.z,
+    previousZ: snapshot.previousPosition.z,
+    vz: snapshot.velocity.z,
+    fixedZ: snapshot.fixedZ
+  };
+}
+function worldBallSnapshot(b = ball) {
+  if (!b) return null;
+  const fixedZ = activePhysicsModelName !== 'gravity';
+  const position = worldPositionFromPlayMove({
+    play: b.playCoord(),
+    move: b.moveCoord(),
+    z: fixedZ ? BALL_FIXED_HEIGHT_FT : ballZ(b)
+  });
+  const previousPosition = worldPositionFromPlayMove({
+    play: b.previousPlayCoord(),
+    move: b.previousMoveCoord(),
+    z: fixedZ ? BALL_FIXED_HEIGHT_FT : previousBallZ(b)
+  });
+  const velocity = worldVelocityFromPlayMove({
+    playVelocity: b.playVelocity(),
+    moveVelocity: b.moveVelocity(),
+    zVelocity: fixedZ ? 0 : ballZVelocity(b)
+  });
+  const flightState = classifyBallFlightState({ z: position.z, vz: velocity.z, fixedZ });
+  return {
+    type: 'WorldBall',
+    version: WORLD_MODEL_VERSION,
+    units: { position: 'feet', velocity: 'feetPerSecond' },
+    position,
+    previousPosition,
+    velocity,
+    fixedZ,
+    flightState,
+    radiusFt: pixelsToWorldFeet(BALL_R)
+  };
+}
+function ballWorldShadowSnapshot(b = ball) {
+  const snapshot = worldBallSnapshot(b);
+  if (!snapshot) return null;
+  return {
+    ...snapshot.position,
+    vx: snapshot.velocity.x,
+    vy: snapshot.velocity.y,
+    vz: snapshot.velocity.z,
+    fixedZ: snapshot.fixedZ
+  };
+}
+function applyBallWorldShadow(shadow) {
+  if (!shadow || !ball) return;
+  const playMove = worldToPlayMove(shadow);
+  ball.setPlayCoord(playMove.play);
+  ball.setMoveCoord(playMove.move);
+  ball.setPlayVelocity(feetPerSecondToPixelsPerFrame(shadow.vy || 0));
+  ball.setMoveVelocity(feetPerSecondToPixelsPerFrame(shadow.vx || 0));
+  ball.worldZ = shadow.fixedZ ? BALL_FIXED_HEIGHT_FT : (shadow.z ?? BALL_FIXED_HEIGHT_FT);
+  ball.prevWorldZ = ball.worldZ;
+  ball.worldVz = shadow.fixedZ ? 0 : (shadow.vz || 0);
+  ball.flightState = classifyBallFlightState({ z: ball.worldZ, vz: ball.worldVz, fixedZ: !!shadow.fixedZ });
+  ball.prevX = ball.x;
+  ball.prevY = ball.y;
+  ball.trail = [];
+}
+function validateBallWorldShadow(context = '') {
+  if (!WORLD_SHADOW_ENABLED || !ball) return true;
+  const shadow = ballWorldShadowSnapshot(ball);
+  const roundTrip = worldToPlayMove(shadow);
+  const playError = Math.abs(roundTrip.play - ball.playCoord());
+  const moveError = Math.abs(roundTrip.move - ball.moveCoord());
+  const ok = playError <= WORLD_SHADOW_TOLERANCE_PX && moveError <= WORLD_SHADOW_TOLERANCE_PX;
+  if (!ok) {
+    const report = {
+      context,
+      playError,
+      moveError,
+      ball: {
+        play: ball.playCoord(),
+        move: ball.moveCoord(),
+        playVelocity: ball.playVelocity(),
+        moveVelocity: ball.moveVelocity()
+      },
+      shadow,
+      roundTrip
+    };
+    worldShadowMismatches.push(report);
+    flagDebugWarning('world shadow mismatch', report);
+    console.warn(`world shadow mismatch${context ? ` (${context})` : ''}`, report);
+  }
+  return ok;
+}
+function worldPlayerSnapshot(player) {
+  if (!player) return null;
+  const position = worldPositionFromPlayMove({
+    play: player.play,
+    move: player.center(),
+    z: 0
+  });
+  const velocity = worldVelocityFromPlayMove({
+    playVelocity: player.vPlay,
+    moveVelocity: player.vMove
+  });
+  return {
+    type: 'WorldPlayer',
+    version: WORLD_MODEL_VERSION,
+    units: { position: 'feet', velocity: 'feetPerSecond', dimensions: 'feet' },
+    playerId: player.playerId,
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    serviceTurn: player.serviceTurn,
+    isHuman: player.isHuman,
+    side: scoreKeeper ? sideForPlayer(player) : null,
+    position,
+    velocity,
+    dimensions: {
+      bodyHeightFt: PLAYER_BODY_HEIGHT_FT,
+      contactHeightFt: PLAYER_CONTACT_HEIGHT_FT,
+      paddleLengthFt: pixelsToWorldFeet(PADDLE_LEN),
+      paddleThicknessFt: pixelsToWorldFeet(PADDLE_THICK)
+    },
+    lane: {
+      name: player.zone.name,
+      minX: pixelsToWorldFeet(player.zone.min),
+      maxX: pixelsToWorldFeet(player.zone.max)
+    }
+  };
+}
+function playerWorldShadowSnapshot(player) {
+  const snapshot = worldPlayerSnapshot(player);
+  if (!snapshot) return null;
+  return {
+    playerId: snapshot.playerId,
+    team: snapshot.team,
+    roleLaneName: snapshot.roleLaneName,
+    positionLaneName: snapshot.positionLaneName,
+    serviceTurn: snapshot.serviceTurn,
+    x: snapshot.position.x,
+    y: snapshot.position.y,
+    z: snapshot.position.z,
+    heightFt: snapshot.dimensions.bodyHeightFt,
+    contactHeightFt: snapshot.dimensions.contactHeightFt,
+    vx: snapshot.velocity.x,
+    vy: snapshot.velocity.y,
+    vz: snapshot.velocity.z
+  };
+}
+function applyPlayerWorldShadow(shadow) {
+  const player = shadow ? playerById(shadow.playerId) : null;
+  if (!player) return;
+  if (shadow.positionLaneName) player.setPositionLane(shadow.positionLaneName);
+  const playMove = worldToPlayMove(shadow);
+  player.play = clampPlayForTeam(playMove.play, player.team);
+  player.move = clampToZone(playMove.move - PADDLE_LEN / 2, player.zone);
+  player.vPlay = feetPerSecondToPixelsPerFrame(shadow.vy || 0);
+  player.vMove = feetPerSecondToPixelsPerFrame(shadow.vx || 0);
+  player.aiAimOffset = 0;
+  player.aiAimEvent = null;
+  if (Object.prototype.hasOwnProperty.call(shadow, 'serviceTurn')) {
+    if (shadow.serviceTurn) player.setServiceTurn(shadow.serviceTurn);
+    else player.clearServiceTurn();
+  }
+}
+function playerWorldShadowSnapshots() {
+  return allPaddles().map(playerWorldShadowSnapshot);
+}
+function worldPlayerSnapshots() {
+  return allPaddles().map(worldPlayerSnapshot);
+}
+function worldGameSnapshot() {
+  return {
+    type: 'WorldGame',
+    version: WORLD_MODEL_VERSION,
+    physicsModel: activePhysicsModelName,
+    units: { position: 'feet', velocity: 'feetPerSecond' },
+    orientation,
+    court: {
+      widthFt: courtGeometry.courtWidthFt,
+      lengthFt: courtGeometry.courtLengthFt,
+      apronWidthFt: courtGeometry.sidelineApronFt,
+      apronLengthFt: courtGeometry.baselineApronFt,
+      outOfPlayWidthFt: courtGeometry.sidelineOutOfPlayFt,
+      outOfPlayLengthFt: courtGeometry.baselineOutOfPlayFt,
+      kitchenDepthFt: courtGeometry.kitchenDepthFt
+    },
+    score: scoreKeeper ? scoreKeeper.snapshot() : null,
+    rally: rallyState ? rallyState.snapshot() : null,
+    ball: worldBallSnapshot(ball),
+    players: playersReady() ? worldPlayerSnapshots() : []
+  };
+}
+function validateWorldSnapshots(context = '') {
+  if (!WORLD_SHADOW_ENABLED) return true;
+  const reports = [];
+  const ballSnapshot = worldBallSnapshot(ball);
+  if (ballSnapshot && ball) {
+    const roundTrip = worldToPlayMove(ballSnapshot.position);
+    const playError = Math.abs(roundTrip.play - ball.playCoord());
+    const moveError = Math.abs(roundTrip.move - ball.moveCoord());
+    if (playError > WORLD_SHADOW_TOLERANCE_PX || moveError > WORLD_SHADOW_TOLERANCE_PX) {
+      reports.push({ context, type: 'WorldBall', playError, moveError, snapshot: ballSnapshot, roundTrip });
+    }
+  }
+  if (playersReady()) {
+    for (const player of allPaddles()) {
+      const snapshot = worldPlayerSnapshot(player);
+      const roundTrip = worldToPlayMove(snapshot.position);
+      const playError = Math.abs(roundTrip.play - player.play);
+      const moveCenterError = Math.abs(roundTrip.move - player.center());
+      if (playError > WORLD_SHADOW_TOLERANCE_PX || moveCenterError > WORLD_SHADOW_TOLERANCE_PX) {
+        reports.push({ context, type: 'WorldPlayer', playerId: player.playerId, playError, moveCenterError, snapshot, roundTrip });
+      }
+    }
+  }
+  if (reports.length) {
+    worldShadowMismatches.push(...reports);
+    flagDebugWarning('world snapshot mismatch', { context, reports });
+    console.warn(`world snapshot mismatch${context ? ` (${context})` : ''}`, reports);
+    return false;
+  }
+  return true;
+}
+function validatePlayerWorldShadows(context = '') {
+  if (!WORLD_SHADOW_ENABLED || !playersReady()) return true;
+  const reports = [];
+  for (const player of allPaddles()) {
+    const shadow = playerWorldShadowSnapshot(player);
+    const roundTrip = worldToPlayMove(shadow);
+    const playError = Math.abs(roundTrip.play - player.play);
+    const moveCenterError = Math.abs(roundTrip.move - player.center());
+    if (playError > WORLD_SHADOW_TOLERANCE_PX || moveCenterError > WORLD_SHADOW_TOLERANCE_PX) {
+      reports.push({
+        context,
+        playerId: player.playerId,
+        label: player.label,
+        playError,
+        moveCenterError,
+        player: {
+          play: player.play,
+          move: player.move,
+          center: player.center(),
+          vPlay: player.vPlay,
+          vMove: player.vMove
+        },
+        shadow,
+        roundTrip
+      });
+    }
+  }
+  if (reports.length) {
+    worldShadowMismatches.push(...reports);
+    flagDebugWarning('player world shadow mismatch', { context, reports });
+    console.warn(`player world shadow mismatch${context ? ` (${context})` : ''}`, reports);
+    return false;
+  }
+  return true;
+}
+function validateRestoredPlayerShadows(savedPlayers = [], context = '') {
+  if (!WORLD_SHADOW_ENABLED || !playersReady()) return true;
+  const toleranceFt = pixelsToWorldFeet(WORLD_SHADOW_TOLERANCE_PX);
+  const reports = [];
+  for (const saved of savedPlayers || []) {
+    const player = saved ? playerById(saved.playerId) : null;
+    if (!player) {
+      reports.push({ context, playerId: saved ? saved.playerId : null, reason: 'missing restored player' });
+      continue;
+    }
+    const restored = playerWorldShadowSnapshot(player);
+    const xErrorFt = Math.abs(restored.x - saved.x);
+    const yErrorFt = Math.abs(restored.y - saved.y);
+    const serviceTurnMismatch = Object.prototype.hasOwnProperty.call(saved, 'serviceTurn') && restored.serviceTurn !== saved.serviceTurn;
+    if (
+      xErrorFt > toleranceFt
+      || yErrorFt > toleranceFt
+      || restored.positionLaneName !== saved.positionLaneName
+      || serviceTurnMismatch
+    ) {
+      reports.push({
+        context,
+        playerId: saved.playerId,
+        xErrorFt,
+        yErrorFt,
+        saved,
+        restored
+      });
+    }
+  }
+  if (reports.length) {
+    worldShadowMismatches.push(...reports);
+    flagDebugWarning('restored player shadow mismatch', { context, reports });
+    console.warn(`restored player shadow mismatch${context ? ` (${context})` : ''}`, reports);
+    return false;
+  }
+  return true;
+}
+function validateWorldShadows(context = '') {
+  const ballOk = validateBallWorldShadow(context);
+  const playersOk = validatePlayerWorldShadows(context);
+  const snapshotsOk = validateWorldSnapshots(context);
+  return ballOk && playersOk && snapshotsOk;
+}
+function worldPhysicsBoundsSnapshot() {
+  return {
+    play: {
+      minY: worldYFromPlay(0),
+      maxY: worldYFromPlay(courtGeometry.playSize),
+      courtStartY: worldYFromPlay(courtGeometry.courtPlayStart),
+      courtEndY: worldYFromPlay(courtGeometry.courtPlayEnd),
+      apronStartY: worldYFromPlay(courtGeometry.apronPlayStart),
+      apronEndY: worldYFromPlay(courtGeometry.apronPlayEnd),
+      deadMinY: worldYFromPlay(-BALL_R),
+      deadMaxY: worldYFromPlay(courtGeometry.playSize + BALL_R)
+    },
+    move: {
+      minX: worldXFromMove(0),
+      maxX: worldXFromMove(courtGeometry.moveSize),
+      courtStartX: worldXFromMove(courtGeometry.courtMoveStart),
+      courtEndX: worldXFromMove(courtGeometry.courtMoveEnd),
+      apronStartX: worldXFromMove(courtGeometry.apronMoveStart),
+      apronEndX: worldXFromMove(courtGeometry.apronMoveEnd),
+      bounceMinX: worldXFromMove(courtGeometry.courtMoveStart + BALL_R),
+      bounceMaxX: worldXFromMove(courtGeometry.courtMoveEnd - BALL_R)
+    },
+    netY: worldYFromPlay(courtGeometry.net),
+    ballRadiusFt: pixelsToWorldFeet(BALL_R)
+  };
+}
+function worldPhysicsPlayerSnapshot(player) {
+  const rect = player.rect();
+  return {
+    ...worldPlayerSnapshot(player),
+    frontY: worldYFromPlay(player.frontCoord()),
+    paddleRect: {
+      minX: worldXFromMove(player.move),
+      maxX: worldXFromMove(player.move + PADDLE_LEN),
+      minY: worldYFromPlay(player.play),
+      maxY: worldYFromPlay(player.play + PADDLE_THICK)
+    },
+    legacyRect: rect
+  };
+}
+function worldPhysicsNextBallStep(scale = ballSpeedScale) {
+  const ballState = worldBallSnapshot(ball);
+  if (!ballState) return null;
+  const dt = scale / SIMULATION_FPS;
+  return {
+    scale,
+    dt,
+    position: {
+      x: ballState.position.x + ballState.velocity.x * dt,
+      y: ballState.position.y + ballState.velocity.y * dt,
+      z: ballState.position.z + ballState.velocity.z * dt
+    },
+    velocity: { ...ballState.velocity },
+    note: 'predicted one legacy advance step before bounce/collision/fault handling'
+  };
+}
+function legacyNextBallStep(scale = ballSpeedScale) {
+  return {
+    play: ball.playCoord() + ball.playVelocity() * scale,
+    move: ball.moveCoord() + ball.moveVelocity() * scale
+  };
+}
+function worldPhysicsStateSnapshot(scale = ballSpeedScale) {
+  const nextWorld = worldPhysicsNextBallStep(scale);
+  const nextLegacy = legacyNextBallStep(scale);
+  return {
+    type: 'WorldPhysicsState',
+    version: WORLD_MODEL_VERSION,
+    physicsModel: activePhysicsModelName,
+    units: { position: 'feet', velocity: 'feetPerSecond' },
+    scale,
+    liveFlags: { running, paused, serving, resolvingPoint, formingForServe },
+    bounds: worldPhysicsBoundsSnapshot(),
+    ball: worldBallSnapshot(ball),
+    players: playersReady() ? allPaddles().map(worldPhysicsPlayerSnapshot) : [],
+    faultState: {
+      currentWinner: courtGeometry.scoreForPlayCoord(ball.playCoord()),
+      nextStepWinner: courtGeometry.scoreForPlayCoord(nextLegacy.play),
+      leftWorldBounds: ball.leftWorldBounds()
+    },
+    nextStep: {
+      world: nextWorld,
+      legacy: nextLegacy,
+      worldAsLegacy: nextWorld ? worldToPlayMove(nextWorld.position) : null
+    }
+  };
+}
+function validateWorldPhysicsState(context = '', scale = ballSpeedScale) {
+  if (!WORLD_SHADOW_ENABLED || !ball) return true;
+  const state = worldPhysicsStateSnapshot(scale);
+  const reports = [];
+  function addError(name, actual, expected, tolerance = WORLD_SHADOW_TOLERANCE_PX) {
+    const error = Math.abs(actual - expected);
+    if (error > tolerance) reports.push({ name, actual, expected, error, tolerance });
+  }
+  const ballRoundTrip = worldToPlayMove(state.ball.position);
+  addError('ball.play', ballRoundTrip.play, ball.playCoord());
+  addError('ball.move', ballRoundTrip.move, ball.moveCoord());
+  addError('ball.playVelocity', feetPerSecondToPixelsPerFrame(state.ball.velocity.y), ball.playVelocity());
+  addError('ball.moveVelocity', feetPerSecondToPixelsPerFrame(state.ball.velocity.x), ball.moveVelocity());
+  if (state.nextStep.worldAsLegacy) {
+    addError('nextStep.play', state.nextStep.worldAsLegacy.play, state.nextStep.legacy.play);
+    addError('nextStep.move', state.nextStep.worldAsLegacy.move, state.nextStep.legacy.move);
+  }
+  for (const playerState of state.players) {
+    const player = playerById(playerState.playerId);
+    if (!player) continue;
+    const playerRoundTrip = worldToPlayMove(playerState.position);
+    addError(`player ${playerState.playerId} play`, playerRoundTrip.play, player.play);
+    addError(`player ${playerState.playerId} moveCenter`, playerRoundTrip.move, player.center());
+    addError(`player ${playerState.playerId} front`, legacyPlayFromWorldY(playerState.frontY), player.frontCoord());
+    addError(`player ${playerState.playerId} rect.minX`, legacyMoveFromWorldX(playerState.paddleRect.minX), player.move);
+    addError(`player ${playerState.playerId} rect.maxX`, legacyMoveFromWorldX(playerState.paddleRect.maxX), player.move + PADDLE_LEN);
+    addError(`player ${playerState.playerId} rect.minY`, legacyPlayFromWorldY(playerState.paddleRect.minY), player.play);
+    addError(`player ${playerState.playerId} rect.maxY`, legacyPlayFromWorldY(playerState.paddleRect.maxY), player.play + PADDLE_THICK);
+  }
+  if (reports.length) {
+    const report = { context, scale, reports, state };
+    worldPhysicsWarnings.push(report);
+    flagDebugWarning('world physics mismatch', report);
+    console.warn(`world physics mismatch${context ? ` (${context})` : ''}`, report);
+    return false;
+  }
+  return true;
+}
+function worldAdvanceBallStepPrediction(scale) {
+  const state = worldBallSnapshot(ball);
+  if (!state) return null;
+  const dt = scale / SIMULATION_FPS;
+  return {
+    scale,
+    from: state.position,
+    velocity: state.velocity,
+    to: {
+      x: state.position.x + state.velocity.x * dt,
+      y: state.position.y + state.velocity.y * dt,
+      z: state.position.z + state.velocity.z * dt
+    }
+  };
+}
+function gravityWorldAdvanceBallStepPrediction(scale) {
+  const state = worldBallSnapshot(ball);
+  if (!state) return null;
+  const dt = scale / SIMULATION_FPS;
+  const nextVz = state.velocity.z - WORLD_GRAVITY_FT_PER_SEC2 * dt;
+  const nextZ = Math.max(BALL_GROUND_Z_FT, state.position.z + ((state.velocity.z + nextVz) / 2) * dt);
+  return {
+    scale,
+    from: state.position,
+    velocity: state.velocity,
+    to: {
+      x: state.position.x + state.velocity.x * dt,
+      y: state.position.y + state.velocity.y * dt,
+      z: nextZ
+    },
+    nextVelocity: {
+      ...state.velocity,
+      z: nextZ <= BALL_GROUND_Z_FT ? 0 : nextVz
+    },
+    gravityFtPerSecond2: WORLD_GRAVITY_FT_PER_SEC2,
+    groundZFt: BALL_GROUND_Z_FT
+  };
+}
+function validateWorldBallAdvancePrediction(prediction, context = '') {
+  if (!prediction) return true;
+  const predictedLegacy = worldToPlayMove(prediction.to);
+  const reports = [];
+  function addError(name, actual, expected, tolerance = WORLD_SHADOW_TOLERANCE_PX) {
+    const error = Math.abs(actual - expected);
+    if (error > tolerance) reports.push({ name, actual, expected, error, tolerance });
+  }
+  addError('advanced play', ball.playCoord(), predictedLegacy.play);
+  addError('advanced move', ball.moveCoord(), predictedLegacy.move);
+  const previousLegacy = worldToPlayMove(prediction.from);
+  addError('previous play', ball.previousPlayCoord(), previousLegacy.play);
+  addError('previous move', ball.previousMoveCoord(), previousLegacy.move);
+  if (reports.length) {
+    const report = {
+      context,
+      prediction,
+      actual: {
+        play: ball.playCoord(),
+        move: ball.moveCoord(),
+        previousPlay: ball.previousPlayCoord(),
+        previousMove: ball.previousMoveCoord()
+      },
+      reports
+    };
+    worldPhysicsWarnings.push(report);
+    flagDebugWarning('world advance mismatch', report);
+    console.warn(`world advance mismatch${context ? ` (${context})` : ''}`, report);
+    return false;
+  }
+  return true;
+}
+function advanceBallFromWorld(scale, context = '') {
+  const prediction = worldAdvanceBallStepPrediction(scale);
+  if (!prediction) return false;
+  const nextLegacy = worldToPlayMove(prediction.to);
+  ball.prevX = ball.x;
+  ball.prevY = ball.y;
+  ball.trail.unshift({ x: ball.x, y: ball.y });
+  if (ball.trail.length > BALL_TRAIL_HISTORY) ball.trail.length = BALL_TRAIL_HISTORY;
+  ball.setPlayCoord(nextLegacy.play);
+  ball.setMoveCoord(nextLegacy.move);
+  validateWorldBallAdvancePrediction(prediction, context);
+  return true;
+}
+function advanceBallWithGravityFromWorld(scale, context = '') {
+  const prediction = gravityWorldAdvanceBallStepPrediction(scale);
+  if (!prediction) return false;
+  const nextLegacy = worldToPlayMove(prediction.to);
+  ball.prevX = ball.x;
+  ball.prevY = ball.y;
+  ball.prevWorldZ = prediction.from.z;
+  ball.trail.unshift({ x: ball.x, y: ball.y });
+  if (ball.trail.length > BALL_TRAIL_HISTORY) ball.trail.length = BALL_TRAIL_HISTORY;
+  ball.setPlayCoord(nextLegacy.play);
+  ball.setMoveCoord(nextLegacy.move);
+  ball.worldZ = prediction.to.z;
+  ball.worldVz = prediction.nextVelocity.z;
+  ball.flightState = classifyBallFlightState({
+    z: ball.worldZ,
+    vz: ball.worldVz,
+    fixedZ: false
+  });
+  validateWorldBallAdvancePrediction(prediction, context);
+  return true;
+}
+function worldScoreForBallPosition(position) {
+  if (!position) return null;
+  const bounds = worldPhysicsBoundsSnapshot();
+  if (position.y < bounds.play.apronStartY) return 1;
+  if (position.y > bounds.play.apronEndY) return 0;
+  return null;
+}
+function worldLeftDeadBallBounds(position) {
+  if (!position) return false;
+  const bounds = worldPhysicsBoundsSnapshot();
+  return position.y < bounds.play.deadMinY || position.y > bounds.play.deadMaxY;
+}
+function worldNetFaultPrediction({ previousPosition, position, velocity }) {
+  if (!previousPosition || !position || !velocity) return null;
+  const bounds = worldPhysicsBoundsSnapshot();
+  const previousY = previousPosition.y;
+  const currentY = position.y;
+  const netY = bounds.netY;
+  const crossedNet = previousY === netY || currentY === netY || (previousY < netY && currentY > netY) || (previousY > netY && currentY < netY);
+  const t = crossedNet && currentY !== previousY
+    ? Math.max(0, Math.min(1, (netY - previousY) / (currentY - previousY)))
+    : 1;
+  const impactPosition = crossedNet
+    ? {
+      x: previousPosition.x + (position.x - previousPosition.x) * t,
+      y: netY,
+      z: previousPosition.z + (position.z - previousPosition.z) * t
+    }
+    : null;
+  const clears = doesBallClearNetZ(impactPosition ? impactPosition.z : position.z);
+  const winner = crossedNet && !clears
+    ? (velocity.y > 0 ? 1 : 0)
+    : null;
+  return {
+    crossedNet,
+    clears,
+    winner,
+    netY,
+    netHeightFt: NET_HEIGHT_FT,
+    impactPosition,
+    previousPosition,
+    position,
+    velocity
+  };
+}
+function worldNetFaultPredictionForBall() {
+  const state = worldBallSnapshot(ball);
+  return worldNetFaultPrediction({
+    previousPosition: state.previousPosition,
+    position: state.position,
+    velocity: state.velocity
+  });
+}
+function worldGroundFaultPrediction({ previousPosition, position, velocity }) {
+  if (!previousPosition || !position || !velocity) return null;
+  const touchedGround = previousPosition.z > BALL_GROUND_Z_FT && position.z <= BALL_GROUND_Z_FT;
+  if (!touchedGround) {
+    return {
+      touchedGround: false,
+      hitterSide: false,
+      winner: null,
+      groundZFt: BALL_GROUND_Z_FT,
+      impactPosition: null,
+      previousPosition,
+      position,
+      velocity
+    };
+  }
+  const t = previousPosition.z !== position.z
+    ? Math.max(0, Math.min(1, (BALL_GROUND_Z_FT - previousPosition.z) / (position.z - previousPosition.z)))
+    : 1;
+  const impactPosition = {
+    x: previousPosition.x + (position.x - previousPosition.x) * t,
+    y: previousPosition.y + (position.y - previousPosition.y) * t,
+    z: BALL_GROUND_Z_FT
+  };
+  const netY = worldPhysicsBoundsSnapshot().netY;
+  const hitterSide = velocity.y > 0
+    ? impactPosition.y < netY
+    : velocity.y < 0
+      ? impactPosition.y > netY
+      : false;
+  const winner = hitterSide
+    ? (velocity.y > 0 ? 1 : 0)
+    : null;
+  return {
+    touchedGround,
+    hitterSide,
+    winner,
+    netY,
+    groundZFt: BALL_GROUND_Z_FT,
+    impactPosition,
+    previousPosition,
+    position,
+    velocity
+  };
+}
+function worldGroundFaultPredictionForBall() {
+  const state = worldBallSnapshot(ball);
+  return worldGroundFaultPrediction({
+    previousPosition: state.previousPosition,
+    position: state.position,
+    velocity: state.velocity
+  });
+}
+function worldBouncePredictionForBall() {
+  const current = worldBallSnapshot(ball);
+  if (!current) return null;
+  const bounds = worldPhysicsBoundsSnapshot();
+  let position = { ...current.position };
+  let velocity = { ...current.velocity };
+  let bounced = false;
+  if (position.x - current.radiusFt <= bounds.move.courtStartX) {
+    position.x = bounds.move.bounceMinX;
+    velocity.x = Math.abs(velocity.x);
+    bounced = true;
+  }
+  if (position.x + current.radiusFt >= bounds.move.courtEndX) {
+    position.x = bounds.move.bounceMaxX;
+    velocity.x = -Math.abs(velocity.x);
+    bounced = true;
+  }
+  return { before: current, after: { position, velocity }, bounced };
+}
+function applyWorldBouncePrediction(prediction) {
+  if (!prediction || !prediction.bounced) return false;
+  const nextLegacy = worldToPlayMove(prediction.after.position);
+  ball.setMoveCoord(nextLegacy.move);
+  ball.setMoveVelocity(feetPerSecondToPixelsPerFrame(prediction.after.velocity.x));
+  return true;
+}
+function validateWorldBouncePrediction(prediction, context = '') {
+  if (!prediction) return true;
+  const reports = [];
+  function addError(name, actual, expected, tolerance = WORLD_SHADOW_TOLERANCE_PX) {
+    const error = Math.abs(actual - expected);
+    if (error > tolerance) reports.push({ name, actual, expected, error, tolerance });
+  }
+  const actual = worldBallSnapshot(ball);
+  addError('bounce x', actual.position.x, prediction.after.position.x);
+  addError('bounce vx', actual.velocity.x, prediction.after.velocity.x);
+  if (reports.length) {
+    const report = { context, prediction, actual, reports };
+    worldPhysicsWarnings.push(report);
+    flagDebugWarning('world bounce mismatch', report);
+    console.warn(`world bounce mismatch${context ? ` (${context})` : ''}`, report);
+    return false;
+  }
+  return true;
+}
+function validateWorldFaultPrediction(expectedWinner, context = '') {
+  const worldWinner = worldScoreForBallPosition(worldBallSnapshot(ball).position);
+  if (worldWinner === expectedWinner) return true;
+  const report = {
+    context,
+    expectedWinner,
+    worldWinner,
+    ball: worldBallSnapshot(ball),
+    bounds: worldPhysicsBoundsSnapshot()
+  };
+  worldPhysicsWarnings.push(report);
+  flagDebugWarning('world fault mismatch', report);
+  console.warn(`world fault mismatch${context ? ` (${context})` : ''}`, report);
+  return false;
+}
+function validateWorldDeadBallBounds(expected, context = '') {
+  const worldValue = worldLeftDeadBallBounds(worldBallSnapshot(ball).position);
+  if (worldValue === expected) return true;
+  const report = {
+    context,
+    expected,
+    worldValue,
+    ball: worldBallSnapshot(ball),
+    bounds: worldPhysicsBoundsSnapshot()
+  };
+  worldPhysicsWarnings.push(report);
+  flagDebugWarning('world dead-ball bounds mismatch', report);
+  console.warn(`world dead-ball bounds mismatch${context ? ` (${context})` : ''}`, report);
+  return false;
+}
+function playerZCollisionBand(player = null) {
+  const contactHeight = player && player.contactHeightFt ? player.contactHeightFt : PLAYER_CONTACT_HEIGHT_FT;
+  return {
+    min: Math.max(PLAYER_REACH_MIN_FT, contactHeight - PADDLE_CONTACT_HALF_HEIGHT_FT),
+    max: Math.min(PLAYER_REACH_MAX_FT, contactHeight + PADDLE_CONTACT_HALF_HEIGHT_FT),
+    bodyMin: 0,
+    bodyMax: PLAYER_BODY_HEIGHT_FT,
+    contactHeight
+  };
+}
+function doesBallOverlapPlayerZ(ballZ = BALL_FIXED_HEIGHT_FT, player = null) {
+  const band = playerZCollisionBand(player);
+  return ballZ >= band.min && ballZ <= band.max;
+}
+function doesBallClearNetZ(ballZ = BALL_FIXED_HEIGHT_FT) {
+  return ballZ > NET_HEIGHT_FT;
+}
+function validateWorldNetFaultPrediction(prediction, context = '') {
+  // A net fault is now an expected game event in gravity physics, not a diagnostic warning.
+  if (!prediction || prediction.winner === null) return true;
+  return true;
+}
+function testZCollision({ ballZ = BALL_FIXED_HEIGHT_FT, playerId = PLAYER_IDS.team0Partner } = {}) {
+  const player = playerById(playerId);
+  const band = playerZCollisionBand(player);
+  return {
+    ballZ,
+    playerId,
+    playerFound: !!player,
+    band,
+    overlaps: doesBallOverlapPlayerZ(ballZ, player)
+  };
+}
+function testNetClearance({ ballZ = BALL_FIXED_HEIGHT_FT } = {}) {
+  return {
+    ballZ,
+    netHeightFt: NET_HEIGHT_FT,
+    clears: doesBallClearNetZ(ballZ),
+    blocked: !doesBallClearNetZ(ballZ)
+  };
+}
+function testNetFault({ ballZ = NET_HEIGHT_FT - 0.1, direction = 1 } = {}) {
+  const netY = worldYFromPlay(courtGeometry.net);
+  const previousPosition = { x: 0, y: netY - Math.sign(direction || 1) * 0.25, z: ballZ };
+  const position = { x: 0, y: netY + Math.sign(direction || 1) * 0.25, z: ballZ };
+  const velocity = { x: 0, y: Math.sign(direction || 1) * 10, z: 0 };
+  return worldNetFaultPrediction({ previousPosition, position, velocity });
+}
+function worldPaddleCollisionPrediction(player) {
+  if (!player || !ball) return null;
+  const front = player.frontCoord();
+  const pv = ball.playVelocity();
+  const movingToward = player.team === 0 ? pv < 0 : pv > 0;
+  const previousEdge = player.team === 0 ? ball.previousPlayCoord() - BALL_R : ball.previousPlayCoord() + BALL_R;
+  const edge = player.team === 0 ? ball.playCoord() - BALL_R : ball.playCoord() + BALL_R;
+  const crossedFront = player.team === 0
+    ? previousEdge >= front && edge <= front
+    : previousEdge <= front && edge >= front;
+  const playOverlap = player.team === 0 ? edge <= front && edge >= front - 8 : edge >= front && edge <= front + 8;
+  const ballState = worldBallSnapshot(ball);
+  let impactMove = ball.moveCoord();
+  let impactZ = ballState.position.z;
+  if (crossedFront && edge !== previousEdge) {
+    const t = (front - previousEdge) / (edge - previousEdge);
+    impactMove = ball.previousMoveCoord() + (ball.moveCoord() - ball.previousMoveCoord()) * t;
+    impactZ = ballState.previousPosition.z + (ballState.position.z - ballState.previousPosition.z) * t;
+  }
+  const moveOverlap = impactMove + BALL_R >= player.move && impactMove - BALL_R <= player.move + PADDLE_LEN;
+  const playerState = worldPhysicsPlayerSnapshot(player);
+  const zBand = playerZCollisionBand(player);
+  const zOverlap = impactZ >= zBand.min && impactZ <= zBand.max;
+  const hit = movingToward && (crossedFront || playOverlap) && moveOverlap && zOverlap;
+  return {
+    playerId: player.playerId,
+    hit,
+    movingToward,
+    crossedFront,
+    playOverlap,
+    moveOverlap,
+    impact: {
+      x: worldXFromMove(impactMove),
+      y: worldYFromPlay(front),
+      z: impactZ
+    },
+    legacy: {
+      front,
+      previousEdge,
+      edge,
+      impactMove,
+      paddleMove: player.move,
+      paddleMoveEnd: player.move + PADDLE_LEN
+    },
+    z: {
+      ball: impactZ,
+      currentBall: ballState.position.z,
+      previousBall: ballState.previousPosition.z,
+      paddleMin: zBand.min,
+      paddleMax: zBand.max,
+      bodyMin: zBand.bodyMin,
+      bodyMax: zBand.bodyMax,
+      contactHeight: zBand.contactHeight,
+      overlap: zOverlap
+    },
+    ball: ballState,
+    player: playerState
+  };
+}
+function validateWorldPaddleCollisionPrediction(player, prediction, legacyHit, context = '') {
+  if (!prediction || prediction.hit === legacyHit) return true;
+  const report = {
+    context,
+    player: playerIdentitySnapshot(player),
+    prediction,
+    legacyHit
+  };
+  worldPhysicsWarnings.push(report);
+  flagDebugWarning('world paddle collision mismatch', report);
+  console.warn(`world paddle collision mismatch${context ? ` (${context})` : ''}`, report);
+  return false;
+}
+function legacyPaddleCollisionHit(player) {
+  const prediction = worldPaddleCollisionPrediction(player);
+  return prediction ? prediction.hit : false;
+}
+function applyWorldPaddleCollision(player, prediction) {
+  if (!player || !prediction || !prediction.hit) return false;
+  const context = makeShotContext(player, {
+    front: prediction.legacy.front,
+    impactMove: prediction.legacy.impactMove,
+    incomingPlayVelocity: ball.playVelocity(),
+    impactZ: prediction.impact.z
+  });
+  const decision = decideShot(player, context);
+  if (activePhysicsModelName === 'gravity') applyGravityShotDecision(player, context, decision);
+  else applyShotDecision(decision);
+  return true;
+}
 function setGameSeed(seed = DEFAULT_GAME_SEED) {
   configuredGameSeed = seed >>> 0;
   gameSeed = configuredGameSeed;
@@ -1077,9 +2117,24 @@ function pixelsPerFrameToMph(pxPerFrame) {
   const feetPerSecond = (pxPerFrame / courtGeometry.pxPerFt) * SIMULATION_FPS;
   return feetPerSecond * 3600 / 5280;
 }
+function feetPerSecondToMph(feetPerSecond) {
+  return feetPerSecond * 3600 / 5280;
+}
+function worldVelocityMagnitude(velocity) {
+  if (!velocity) return 0;
+  return Math.sqrt(
+    velocity.x * velocity.x
+    + velocity.y * velocity.y
+    + velocity.z * velocity.z
+  );
+}
+function worldBallSpeedMph(b = ball, scale = ballSpeedScale) {
+  const snapshot = worldBallSnapshot(b);
+  if (!snapshot) return null;
+  return feetPerSecondToMph(worldVelocityMagnitude(snapshot.velocity) * scale);
+}
 function ballSpeedMph(b) {
-  const pxPerFrame = Math.sqrt(b.vx * b.vx + b.vy * b.vy) * ballSpeedScale;
-  return pixelsPerFrameToMph(pxPerFrame);
+  return worldBallSpeedMph(b, ballSpeedScale);
 }
 function paddleRect(p) { return p.rect(); }
 function paddleFrontCoord(p) { return p.frontCoord(); }
@@ -1140,6 +2195,51 @@ function targetOpponentCourtUV(hitter, { u = 0, v = OPPONENT_TARGET_UV.baseline,
     v: targetV
   };
 }
+function opponentCourtUFromMove(hitter, move, { marginFt = 0, clamp = true } = {}) {
+  const team = hitterTeam(hitter);
+  const margin = Math.max(0, courtGeometry.ftToPx(marginFt));
+  const rightLane = rightLaneAsFacingNet(team);
+  const leftMove = rightLane === 'human' ? courtGeometry.courtMoveStart + margin : courtGeometry.courtMoveEnd - margin;
+  const rightMove = rightLane === 'human' ? courtGeometry.courtMoveEnd - margin : courtGeometry.courtMoveStart + margin;
+  const span = rightMove - leftMove || 1;
+  const rawU = ((move - leftMove) / span) * 2 - 1;
+  return clamp ? clampTargetU(rawU) : rawU;
+}
+function opponentTeamFor(hitter) {
+  return 1 - hitterTeam(hitter);
+}
+function playerCenterWorldPosition(player, { useFront = false, z = PLAYER_CONTACT_HEIGHT_FT } = {}) {
+  return {
+    x: worldXFromMove(player.center()),
+    y: worldYFromPlay(useFront ? player.frontCoord() : player.play + PADDLE_THICK / 2),
+    z
+  };
+}
+function nearestOpponentToWorldPosition(hitter, position) {
+  const opponents = allPaddles().filter(player => player.team === opponentTeamFor(hitter));
+  if (!opponents.length) return null;
+  return opponents.reduce((nearest, candidate) => {
+    const candidatePosition = playerCenterWorldPosition(candidate, { useFront: true });
+    const candidateDistance = (candidatePosition.x - position.x) ** 2 + (candidatePosition.y - position.y) ** 2;
+    if (!nearest || candidateDistance < nearest.distance) return { player: candidate, distance: candidateDistance };
+    return nearest;
+  }, null).player;
+}
+function targetOpponentPlayerFeet(hitter, opponent, { depthFt = 1.25, lateralFt = 0, marginFt = 0.5 } = {}) {
+  if (!opponent) return null;
+  const towardOpponentBaseline = Math.sign(opponentBaselinePlayCoord(hitterTeam(hitter)) - courtGeometry.net) || 1;
+  const targetPlay = opponent.frontCoord() + towardOpponentBaseline * courtGeometry.ftToPx(depthFt);
+  const targetMove = opponent.center() + courtGeometry.ftToPx(lateralFt);
+  const margin = Math.max(0, courtGeometry.ftToPx(marginFt));
+  return {
+    play: Math.max(courtGeometry.courtPlayStart + margin, Math.min(courtGeometry.courtPlayEnd - margin, targetPlay)),
+    move: Math.max(courtGeometry.courtMoveStart + margin, Math.min(courtGeometry.courtMoveEnd - margin, targetMove)),
+    targetType: 'opponent-feet',
+    opponentPlayerId: opponent.playerId,
+    depthFt,
+    lateralFt
+  };
+}
 function playerById(playerId) {
   const registry = playerIdentityRegistry();
   return registry ? registry[playerId] || null : null;
@@ -1187,11 +2287,13 @@ function currentServerPlayerId() {
 }
 function replaySnapshot(now = performance.now()) {
   if (!ball) return null;
+  const flight = ballFlightStateSnapshot();
   return {
     at: now,
     orientation,
     width: W,
     height: H,
+    physicsModel: activePhysicsModelName,
     state: {
       running,
       paused,
@@ -1208,6 +2310,10 @@ function replaySnapshot(now = performance.now()) {
     ball: {
       x: ball.x,
       y: ball.y,
+      flightState: flight ? flight.state : ball.flightState,
+      z: flight ? flight.z : ballZ(ball),
+      previousZ: flight ? flight.previousZ : previousBallZ(ball),
+      vz: flight ? flight.vz : ballZVelocity(ball),
       trail: (ball.trail || []).map(point => ({ x: point.x, y: point.y }))
     },
     paddles: allPaddles().map(p => ({
@@ -1330,6 +2436,19 @@ function updateRallyHitReadout() {
       ? `top rally ${topMph.toFixed(1)} mph`
       : 'top rally -- mph';
   }
+  if (maxLobHeightNoteEl) {
+    const maxLobFt = rallyState.currentMaxLobHeightFt || rallyState.lastMaxLobHeightFt;
+    maxLobHeightNoteEl.textContent = maxLobFt
+      ? `max lob ${maxLobFt.toFixed(1)} ft`
+      : 'max lob -- ft';
+  }
+  if (minNetClearanceNoteEl) {
+    const netLastFt = rallyState.currentLastNetClearanceFt ?? rallyState.lastNetClearanceFt;
+    const netMinFt = rallyState.currentMinNetClearanceFt ?? rallyState.lastMinNetClearanceFt;
+    minNetClearanceNoteEl.textContent = Number.isFinite(netLastFt) || Number.isFinite(netMinFt)
+      ? `net last ${Number.isFinite(netLastFt) ? `${netLastFt >= 0 ? '+' : ''}${netLastFt.toFixed(2)}` : '--'} · min ${Number.isFinite(netMinFt) ? `${netMinFt >= 0 ? '+' : ''}${netMinFt.toFixed(2)}` : '--'} ft`
+      : 'net min -- ft';
+  }
   if (collisionWatchNoteEl) {
     collisionWatchNoteEl.textContent = collisionWatchMisses
       ? `collision watch ${collisionWatchMisses} miss${collisionWatchMisses === 1 ? '' : 'es'}`
@@ -1350,6 +2469,11 @@ function flagDebugWarning(type, details) {
 }
 function clearDebugWarnings() {
   debugWarnings = [];
+  shotPolicyShadowWarnings = [];
+  aiWorldTargetWarnings = [];
+  aiWorldInputWarnings = [];
+  worldAIContextWarnings = [];
+  worldPhysicsWarnings = [];
   if (debugAlertEl) {
     debugAlertEl.classList.remove('visible');
     debugAlertEl.title = 'debug warning: check console';
@@ -1643,14 +2767,250 @@ function aiBallSnapshot() {
     moveVelocity: moveVelocity()
   };
 }
+function aiWorldSnapshot(player, { server = null, receiver = null } = {}) {
+  const players = allPaddles().map(p => ({
+    ...playerWorldShadowSnapshot(p),
+    model: worldPlayerSnapshot(p),
+    isServer: p === server,
+    isReceiver: p === receiver
+  }));
+  return {
+    self: { ...playerWorldShadowSnapshot(player), model: worldPlayerSnapshot(player) },
+    ball: { ...ballWorldShadowSnapshot(ball), model: worldBallSnapshot(ball) },
+    players
+  };
+}
+function worldXFromMove(move) {
+  return pixelsToWorldFeet(move);
+}
+function worldYFromPlay(play) {
+  return pixelsToWorldFeet(play);
+}
+function legacyMoveFromWorldX(x) {
+  return worldFeetToPixels(x);
+}
+function legacyPlayFromWorldY(y) {
+  return worldFeetToPixels(y);
+}
+function aiWorldInputSnapshot(context) {
+  if (!context) return null;
+  return {
+    type: 'AIWorldInput',
+    version: WORLD_MODEL_VERSION,
+    units: { position: 'feet', velocity: 'feetPerSecond' },
+    playerId: context.playerId,
+    self: context.world ? context.world.self : null,
+    ball: context.world ? context.world.ball : null,
+    frontY: worldYFromPlay(context.front),
+    homeY: worldYFromPlay(context.homePlay),
+    formationY: worldYFromPlay(context.formationPlay),
+    predictedInterceptX: worldXFromMove(context.predictedInterceptMove),
+    zone: {
+      name: context.zone.name,
+      minX: worldXFromMove(context.zone.min),
+      maxX: worldXFromMove(context.zone.max)
+    },
+    watchZone: {
+      minX: worldXFromMove(context.watchZone.min),
+      maxX: worldXFromMove(context.watchZone.max)
+    },
+    playVelocityY: pixelsPerFrameToFeetPerSecond(context.playVelocity),
+    comingToward: context.comingToward
+  };
+}
+function aiWorldInputParityReport(context) {
+  const snapshot = aiWorldInputSnapshot(context);
+  if (!snapshot) return null;
+  const errors = [];
+  function addError(name, actual, expected) {
+    const error = Math.abs(actual - expected);
+    errors.push({ name, actual, expected, error });
+  }
+  if (snapshot.self && snapshot.self.model) {
+    const selfRoundTrip = worldToPlayMove(snapshot.self.model.position);
+    addError('self.play', selfRoundTrip.play, context.player.play);
+    addError('self.moveCenter', selfRoundTrip.move, context.player.center());
+  }
+  if (snapshot.ball && snapshot.ball.model) {
+    const ballRoundTrip = worldToPlayMove(snapshot.ball.model.position);
+    const previousBallRoundTrip = worldToPlayMove(snapshot.ball.model.previousPosition);
+    addError('ball.play', ballRoundTrip.play, context.ball.play);
+    addError('ball.move', ballRoundTrip.move, context.ball.move);
+    addError('ball.previousPlay', previousBallRoundTrip.play, context.ball.previousPlay);
+    addError('ball.previousMove', previousBallRoundTrip.move, context.ball.previousMove);
+    addError('ball.playVelocity', feetPerSecondToPixelsPerFrame(snapshot.ball.model.velocity.y), context.ball.playVelocity);
+    addError('ball.moveVelocity', feetPerSecondToPixelsPerFrame(snapshot.ball.model.velocity.x), context.ball.moveVelocity);
+  }
+  addError('front', legacyPlayFromWorldY(snapshot.frontY), context.front);
+  addError('homePlay', legacyPlayFromWorldY(snapshot.homeY), context.homePlay);
+  addError('formationPlay', legacyPlayFromWorldY(snapshot.formationY), context.formationPlay);
+  addError('predictedInterceptMove', legacyMoveFromWorldX(snapshot.predictedInterceptX), context.predictedInterceptMove);
+  addError('zone.min', legacyMoveFromWorldX(snapshot.zone.minX), context.zone.min);
+  addError('zone.max', legacyMoveFromWorldX(snapshot.zone.maxX), context.zone.max);
+  addError('watchZone.min', legacyMoveFromWorldX(snapshot.watchZone.minX), context.watchZone.min);
+  addError('watchZone.max', legacyMoveFromWorldX(snapshot.watchZone.maxX), context.watchZone.max);
+  addError('playVelocity', feetPerSecondToPixelsPerFrame(snapshot.playVelocityY), context.playVelocity);
+  const maxErrorPx = errors.reduce((max, item) => Math.max(max, item.error), 0);
+  return {
+    playerId: context.playerId,
+    team: context.team,
+    roleLaneName: context.roleLaneName,
+    positionLaneName: context.positionLaneName,
+    rallyHitCount: context.rallyHitCount,
+    snapshot,
+    errors,
+    maxErrorPx,
+    parityOk: maxErrorPx <= AI_POLICY_TARGET_TOLERANCE_PX
+  };
+}
+function validateAIWorldInputContext(context, reportWarnings = true) {
+  const report = aiWorldInputParityReport(context);
+  if (!report || report.parityOk) return true;
+  aiWorldInputWarnings.push(report);
+  if (reportWarnings) {
+    flagDebugWarning('ai world input mismatch', report);
+    console.warn('ai world input mismatch', report);
+  }
+  return false;
+}
+function worldCourtSnapshot() {
+  return {
+    widthFt: courtGeometry.courtWidthFt,
+    lengthFt: courtGeometry.courtLengthFt,
+    apronWidthFt: courtGeometry.sidelineApronFt,
+    apronLengthFt: courtGeometry.baselineApronFt,
+    outOfPlayWidthFt: courtGeometry.sidelineOutOfPlayFt,
+    outOfPlayLengthFt: courtGeometry.baselineOutOfPlayFt,
+    kitchenDepthFt: courtGeometry.kitchenDepthFt,
+    kitchenLineV: OPPONENT_TARGET_UV.kitchenLine
+  };
+}
+function compactLegacyAIContext(context) {
+  return {
+    playerId: context.playerId,
+    team: context.team,
+    roleLaneName: context.roleLaneName,
+    positionLaneName: context.positionLaneName,
+    serviceTurn: context.serviceTurn,
+    side: context.side,
+    isServingTeam: context.isServingTeam,
+    isServer: context.isServer,
+    isReceiver: context.isReceiver,
+    front: context.front,
+    zone: { ...context.zone },
+    watchZone: { ...context.watchZone },
+    homePlay: context.homePlay,
+    formationPlay: context.formationPlay,
+    predictedInterceptMove: context.predictedInterceptMove,
+    playVelocity: context.playVelocity,
+    comingToward: context.comingToward,
+    serving: context.serving,
+    rallyHitCount: context.rallyHitCount,
+    ball: { ...context.ball },
+    score: context.score.slice()
+  };
+}
+function makeWorldAIContext(player, legacyContext = null) {
+  if (!player) return null;
+  const context = legacyContext || makeAIContext(player);
+  const worldInputs = context.worldInputs || aiWorldInputSnapshot(context);
+  return {
+    type: 'WorldAIContext',
+    version: WORLD_MODEL_VERSION,
+    units: { position: 'feet', velocity: 'feetPerSecond' },
+    playerId: context.playerId,
+    self: context.world && context.world.self ? context.world.self.model : worldPlayerSnapshot(player),
+    ball: context.world && context.world.ball ? context.world.ball.model : worldBallSnapshot(ball),
+    players: context.world
+      ? context.world.players.map(p => ({
+        ...p.model,
+        isServer: p.isServer,
+        isReceiver: p.isReceiver
+      }))
+      : worldPlayerSnapshots(),
+    court: worldCourtSnapshot(),
+    rally: {
+      hitCount: context.rallyHitCount,
+      servingTeamAtStart: rallyState ? rallyState.servingTeamAtStart : null,
+      teamHits: rallyState ? rallyState.teamHits.slice() : [0, 0],
+      lastHit: rallyState && rallyState.lastHit ? { ...rallyState.lastHit } : null
+    },
+    service: {
+      serving: context.serving,
+      servingTeam: context.servingTeam,
+      serverNumber: context.serverNumber,
+      serverPlayerId: context.serverPlayerId,
+      receiverPlayerId: context.receiverPlayerId,
+      isServingTeam: context.isServingTeam,
+      isServer: context.isServer,
+      isReceiver: context.isReceiver
+    },
+    geometry: {
+      frontY: worldInputs.frontY,
+      homeY: worldInputs.homeY,
+      formationY: worldInputs.formationY,
+      predictedInterceptX: worldInputs.predictedInterceptX,
+      zone: { ...worldInputs.zone },
+      watchZone: { ...worldInputs.watchZone }
+    },
+    flags: {
+      comingToward: context.comingToward
+    },
+    legacy: compactLegacyAIContext(context)
+  };
+}
+function validateWorldAIContextForPlayer(player, reportWarnings = true) {
+  if (!player) return true;
+  const context = makeAIContext(player);
+  const worldContext = makeWorldAIContext(player, context);
+  const inputReport = aiWorldInputParityReport(context);
+  const hasShape = !!worldContext
+    && worldContext.type === 'WorldAIContext'
+    && !!worldContext.self
+    && !!worldContext.ball
+    && Array.isArray(worldContext.players)
+    && !!worldContext.geometry
+    && !!worldContext.legacy;
+  const ok = hasShape && (!inputReport || inputReport.parityOk);
+  if (!ok) {
+    const report = {
+      player: playerIdentitySnapshot(player),
+      hasShape,
+      inputReport,
+      worldContext
+    };
+    worldAIContextWarnings.push(report);
+    if (reportWarnings) {
+      flagDebugWarning('world ai context mismatch', report);
+      console.warn('world ai context mismatch', report);
+    }
+  }
+  return ok;
+}
+function getWorldAIContexts() {
+  if (!playersReady()) return [];
+  return allPaddles().map(player => {
+    const context = makeAIContext(player);
+    return makeWorldAIContext(player, context);
+  });
+}
+function validateWorldAIContexts() {
+  if (!playersReady()) return true;
+  let ok = true;
+  for (const player of allPaddles()) {
+    ok = validateWorldAIContextForPlayer(player) && ok;
+  }
+  return ok;
+}
 function makeAIContext(player) {
   const pv = playVelocity();
   const server = currentServingPlayer();
   const receiver = scoreKeeper ? receivingPaddleFor(scoreKeeper.servingDir()) : null;
   const front = player.frontCoord();
   const predictedInterceptMove = predictInterceptMove(front);
+  const world = aiWorldSnapshot(player, { server, receiver });
   let aimOffsetSample = null;
-  return {
+  const context = {
     player,
     playerId: player.playerId,
     team: player.team,
@@ -1674,6 +3034,7 @@ function makeAIContext(player) {
     score: scoreKeeper ? scoreKeeper.points.slice() : [0, 0],
     players: allPaddles().map(p => aiPlayerSnapshot(p, { server, receiver })),
     ball: aiBallSnapshot(),
+    world,
     playVelocity: pv,
     comingToward: (player.team === 0 && pv < 0) || (player.team === 1 && pv > 0),
     serving,
@@ -1683,6 +3044,9 @@ function makeAIContext(player) {
       return aimOffsetSample;
     }
   };
+  context.worldInputs = aiWorldInputSnapshot(context);
+  context.worldAI = makeWorldAIContext(player, context);
+  return context;
 }
 const baselineAIPolicy = {
   name: 'baseline',
@@ -1716,12 +3080,52 @@ const baselineCloneAIPolicy = {
     return baselineAIPolicy.decide(player, context);
   }
 };
+function clampWorldPaddleStartX(startX, zone, paddleLengthFt) {
+  return Math.max(zone.minX, Math.min(zone.maxX - paddleLengthFt, startX));
+}
+const worldBaselineAIPolicy = {
+  name: 'world-baseline',
+  decide(player, context) {
+    const worldContext = context.worldAI || makeWorldAIContext(player, context);
+    const paddleLengthFt = worldContext.self.dimensions.paddleLengthFt;
+    const zone = worldContext.geometry.zone;
+    let targetX = zone.minX + (zone.maxX - zone.minX) / 2;
+    const targetY = worldContext.geometry.formationY;
+    if (worldContext.flags.comingToward && !worldContext.service.serving) {
+      const predictedX = worldContext.geometry.predictedInterceptX;
+      const watchZone = worldContext.geometry.watchZone;
+      const ownsBall = predictedX >= watchZone.minX && predictedX <= watchZone.maxX;
+      if (ownsBall) {
+        const aimEvent = worldContext.rally.hitCount;
+        if (player.aiAimEvent !== aimEvent) {
+          player.aiAimEvent = aimEvent;
+          player.aiAimOffset = context.aiAimOffsetSample();
+        }
+        const aimOffsetFt = pixelsToWorldFeet(player.aiAimOffset);
+        const targetStartX = predictedX - paddleLengthFt / 2 + aimOffsetFt;
+        targetX = clampWorldPaddleStartX(targetStartX, zone, paddleLengthFt) + paddleLengthFt / 2;
+      } else {
+        player.aiAimEvent = null;
+        player.aiAimOffset = 0;
+      }
+    } else {
+      player.aiAimEvent = null;
+      player.aiAimOffset = 0;
+    }
+    return {
+      targetMove: legacyMoveFromWorldX(targetX),
+      targetPlay: legacyPlayFromWorldY(targetY),
+      worldTarget: { x: targetX, y: targetY, z: PLAYER_CONTACT_HEIGHT_FT }
+    };
+  }
+};
 const AI_POLICIES = {
   baseline: baselineAIPolicy,
-  baselineClone: baselineCloneAIPolicy
+  baselineClone: baselineCloneAIPolicy,
+  worldBaseline: worldBaselineAIPolicy
 };
-const ACTIVE_AI_POLICY_NAME = 'baseline';
-const SHADOW_AI_POLICY_NAME = 'baselineClone';
+const ACTIVE_AI_POLICY_NAME = 'worldBaseline';
+const SHADOW_AI_POLICY_NAME = 'baseline';
 const baselineShotPolicy = {
   name: 'baseline-shot',
   decide(player, context) {
@@ -1737,17 +3141,60 @@ const baselineShotPolicy = {
     };
   }
 };
-const SHOT_POLICIES = {
-  baseline: baselineShotPolicy
+const worldBaselineShotPolicy = {
+  name: 'world-baseline-shot',
+  decide(player, context) {
+    const paddleCenterX = worldXFromMove(context.playerCenter);
+    const impactX = worldXFromMove(context.impactMove);
+    const frontY = worldYFromPlay(context.front);
+    const ballVelocity = context.world && context.world.ball && context.world.ball.model
+      ? context.world.ball.model.velocity
+      : worldBallSnapshot(ball).velocity;
+    const offsetFt = impactX - paddleCenterX;
+    const incomingYVelocity = ballVelocity.y;
+    const reboundYSpeed = context.progressiveSpeedups
+      ? Math.abs(incomingYVelocity) * 1.045
+      : Math.abs(incomingYVelocity);
+    const nextVelocity = {
+      x: ballVelocity.x + offsetFt * 0.12 * SIMULATION_FPS,
+      y: player.team === 0 ? reboundYSpeed : -reboundYSpeed,
+      z: 0
+    };
+    const nextPosition = {
+      x: impactX,
+      y: player.team === 0
+        ? frontY + pixelsToWorldFeet(BALL_R)
+        : frontY - pixelsToWorldFeet(BALL_R),
+      z: BALL_FIXED_HEIGHT_FT
+    };
+    return {
+      playVelocity: feetPerSecondToPixelsPerFrame(nextVelocity.y),
+      moveVelocity: feetPerSecondToPixelsPerFrame(nextVelocity.x),
+      play: legacyPlayFromWorldY(nextPosition.y),
+      move: legacyMoveFromWorldX(nextPosition.x),
+      world: {
+        position: nextPosition,
+        velocity: nextVelocity
+      }
+    };
+  }
 };
-const ACTIVE_SHOT_POLICY_NAME = 'baseline';
+const SHOT_POLICIES = {
+  baseline: baselineShotPolicy,
+  worldBaseline: worldBaselineShotPolicy
+};
+const ACTIVE_SHOT_POLICY_NAME = 'worldBaseline';
+const SHADOW_SHOT_POLICY_NAME = 'baseline';
 function shotPolicyByName(name) {
   return SHOT_POLICIES[name] || SHOT_POLICIES.baseline;
 }
 function activeShotPolicy() {
   return shotPolicyByName(ACTIVE_SHOT_POLICY_NAME);
 }
-function makeShotContext(player, { front, impactMove, incomingPlayVelocity }) {
+function shadowShotPolicy() {
+  return shotPolicyByName(SHADOW_SHOT_POLICY_NAME);
+}
+function makeShotContext(player, { front, impactMove, incomingPlayVelocity, impactZ = PLAYER_CONTACT_HEIGHT_FT }) {
   return {
     player,
     playerId: player.playerId,
@@ -1758,17 +3205,217 @@ function makeShotContext(player, { front, impactMove, incomingPlayVelocity }) {
     playerCenter: player.center(),
     progressiveSpeedups,
     ball: aiBallSnapshot(),
+    world: {
+      player: worldPlayerSnapshot(player),
+      ball: worldBallSnapshot(ball),
+      impact: {
+        x: worldXFromMove(impactMove),
+        y: worldYFromPlay(front),
+        z: impactZ
+      }
+    },
     rallyHitCount: rallyState ? rallyState.hitCount : 0
   };
 }
 function decideShot(player, context) {
-  return activeShotPolicy().decide(player, context);
+  const activeDecision = activeShotPolicy().decide(player, context);
+  const shadowPolicy = shadowShotPolicy();
+  if (shadowPolicy) {
+    const shadowDecision = shadowPolicy.decide(player, context);
+    const delta = Math.max(
+      Math.abs(activeDecision.playVelocity - shadowDecision.playVelocity),
+      Math.abs(activeDecision.moveVelocity - shadowDecision.moveVelocity),
+      Math.abs(activeDecision.play - shadowDecision.play),
+      Math.abs(activeDecision.move - shadowDecision.move)
+    );
+    if (delta > AI_POLICY_TARGET_TOLERANCE_PX) {
+      const report = {
+        player: playerIdentitySnapshot(player),
+        activePolicy: ACTIVE_SHOT_POLICY_NAME,
+        shadowPolicy: SHADOW_SHOT_POLICY_NAME,
+        activeDecision,
+        shadowDecision,
+        delta,
+        context: {
+          impactMove: context.impactMove,
+          playerCenter: context.playerCenter,
+          incomingPlayVelocity: context.incomingPlayVelocity,
+          ball: context.ball,
+          world: context.world
+        }
+      };
+      shotPolicyShadowWarnings.push(report);
+      flagDebugWarning('shot policy shadow mismatch', report);
+      console.warn('shot policy shadow mismatch', report);
+    }
+  }
+  return activeDecision;
+}
+function isGravityHandBattleShot(player, opponent) {
+  if (!player || !opponent) return false;
+  const hitterNetDistanceFt = Math.abs(player.frontCoord() - courtGeometry.net) / courtGeometry.pxPerFt;
+  const opponentNetDistanceFt = Math.abs(opponent.frontCoord() - courtGeometry.net) / courtGeometry.pxPerFt;
+  return hitterNetDistanceFt <= GRAVITY_SHOT_PROFILE.handBattleNetDistanceFt
+    && opponentNetDistanceFt <= GRAVITY_SHOT_PROFILE.handBattleNetDistanceFt;
+}
+function gravityShotTargetFromDecision(player, context, decision, start) {
+  const nearestOpponent = start ? nearestOpponentToWorldPosition(player, start) : null;
+  if (isGravityHandBattleShot(player, nearestOpponent)) {
+    const lateralFt = gameRandomBetween(
+      -GRAVITY_SHOT_PROFILE.feetTargetLateralJitterFt,
+      GRAVITY_SHOT_PROFILE.feetTargetLateralJitterFt
+    );
+    const feetTarget = targetOpponentPlayerFeet(player, nearestOpponent, {
+      depthFt: GRAVITY_SHOT_PROFILE.feetTargetDepthFt,
+      lateralFt,
+      marginFt: 0.75
+    });
+    if (feetTarget) return feetTarget;
+  }
+  const projectedMove = decision.move + decision.moveVelocity * 24;
+  const baseU = opponentCourtUFromMove(player, projectedMove, { marginFt: 1 });
+  const jitter = gameRandomBetween(-GRAVITY_SHOT_PROFILE.targetUJitter, GRAVITY_SHOT_PROFILE.targetUJitter);
+  const u = clampTargetU(baseU + jitter);
+  return {
+    ...targetOpponentCourtUV(player, {
+    u,
+    v: GRAVITY_SHOT_PROFILE.targetV,
+    marginFt: 1
+    }),
+    targetType: 'opponent-court-uv'
+  };
+}
+function gravityBallisticSolveFromApex(start, targetWorld, desiredApexZ, requiredNetZ) {
+  let apexZ = Math.max(desiredApexZ, start.z, targetWorld.z + 0.01);
+  let solution = null;
+  for (let i = 0; i < 5; i++) {
+    const upTime = Math.sqrt(Math.max(0, 2 * (apexZ - start.z) / WORLD_GRAVITY_FT_PER_SEC2));
+    const downTime = Math.sqrt(Math.max(0, 2 * (apexZ - targetWorld.z) / WORLD_GRAVITY_FT_PER_SEC2));
+    const flightTimeSec = Math.max(0.01, upTime + downTime);
+    const velocity = {
+      x: (targetWorld.x - start.x) / flightTimeSec,
+      y: (targetWorld.y - start.y) / flightTimeSec,
+      z: Math.sqrt(Math.max(0, 2 * WORLD_GRAVITY_FT_PER_SEC2 * (apexZ - start.z)))
+    };
+    const netY = worldPhysicsBoundsSnapshot().netY;
+    const netCrossTime = velocity.y
+      ? (netY - start.y) / velocity.y
+      : null;
+    const crossesNet = netCrossTime !== null && netCrossTime > 0 && netCrossTime < flightTimeSec;
+    const netZ = crossesNet
+      ? start.z + velocity.z * netCrossTime - 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * netCrossTime * netCrossTime
+      : null;
+    solution = { velocity, apexZ, flightTimeSec, netZ, requiredNetZ, crossesNet };
+    if (!crossesNet || netZ >= requiredNetZ) return solution;
+    apexZ += requiredNetZ - netZ + 0.5;
+  }
+  return solution;
+}
+function clampFlightTime(seconds) {
+  return Math.max(
+    GRAVITY_SHOT_PROFILE.handBattleMinFlightTimeSec,
+    Math.min(GRAVITY_SHOT_PROFILE.handBattleMaxFlightTimeSec, seconds)
+  );
+}
+function gravityBallisticSolveForNetZ(start, targetWorld, requiredNetZ) {
+  const netY = worldPhysicsBoundsSnapshot().netY;
+  const ySpan = targetWorld.y - start.y;
+  const netFraction = ySpan
+    ? (netY - start.y) / ySpan
+    : null;
+  const crossesNet = netFraction !== null && netFraction > 0 && netFraction < 1;
+  const xyDistance = Math.hypot(targetWorld.x - start.x, targetWorld.y - start.y);
+  let flightTimeSec = clampFlightTime(xyDistance / 42);
+  if (crossesNet) {
+    const numerator = requiredNetZ - start.z - netFraction * (targetWorld.z - start.z);
+    const denominator = 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * netFraction * (1 - netFraction);
+    if (denominator > 0 && numerator > 0) {
+      flightTimeSec = clampFlightTime(Math.sqrt(numerator / denominator));
+    }
+  }
+  const velocity = {
+    x: (targetWorld.x - start.x) / flightTimeSec,
+    y: (targetWorld.y - start.y) / flightTimeSec,
+    z: (targetWorld.z - start.z + 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * flightTimeSec * flightTimeSec) / flightTimeSec
+  };
+  const netCrossTime = crossesNet ? netFraction * flightTimeSec : null;
+  const netZ = crossesNet
+    ? start.z + velocity.z * netCrossTime - 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * netCrossTime * netCrossTime
+    : null;
+  const apexZ = velocity.z > 0
+    ? start.z + velocity.z * velocity.z / (2 * WORLD_GRAVITY_FT_PER_SEC2)
+    : start.z;
+  return { velocity, apexZ, flightTimeSec, netZ, requiredNetZ, crossesNet };
+}
+function gravityBallisticShotDecision(player, context, decision) {
+  const start = context.world && context.world.impact
+    ? context.world.impact
+    : worldPositionFromPlayMove({ play: decision.play, move: decision.move, z: ballZ(ball) });
+  const target = gravityShotTargetFromDecision(player, context, decision, start);
+  const targetWorld = worldPositionFromPlayMove({
+    play: target.play,
+    move: target.move,
+    z: BALL_GROUND_Z_FT
+  });
+  const handBattleTarget = target.targetType === 'opponent-feet';
+  const desiredApexZ = handBattleTarget
+    ? start.z
+    : NET_HEIGHT_FT + GRAVITY_SHOT_PROFILE.apexAboveNetFt;
+  const netClearanceJitter = handBattleTarget
+    ? gameRandomBetween(-GRAVITY_SHOT_PROFILE.handBattleNetClearanceJitterFt, GRAVITY_SHOT_PROFILE.handBattleNetClearanceJitterFt)
+    : gameRandomBetween(-GRAVITY_SHOT_PROFILE.netClearanceJitterFt, GRAVITY_SHOT_PROFILE.netClearanceJitterFt);
+  const requiredNetZ = NET_HEIGHT_FT
+    + (handBattleTarget ? GRAVITY_SHOT_PROFILE.handBattleNetClearanceFt : GRAVITY_SHOT_PROFILE.netClearanceFt)
+    + netClearanceJitter;
+  const solution = handBattleTarget
+    ? gravityBallisticSolveForNetZ(start, targetWorld, requiredNetZ)
+    : gravityBallisticSolveFromApex(start, targetWorld, desiredApexZ, requiredNetZ);
+  const velocity = solution.velocity;
+  return {
+    ...decision,
+    playVelocity: feetPerSecondToPixelsPerFrame(velocity.y),
+    moveVelocity: feetPerSecondToPixelsPerFrame(velocity.x),
+    play: legacyPlayFromWorldY(start.y),
+    move: legacyMoveFromWorldX(start.x),
+    world: {
+      ...(decision.world || {}),
+      position: { ...start },
+      velocity,
+      apexZ: solution.apexZ,
+      target: {
+        ...target,
+        position: targetWorld,
+        flightTimeSec: solution.flightTimeSec,
+        desiredApexZ,
+        netClearanceJitter,
+        netZ: solution.netZ,
+        requiredNetZ: solution.requiredNetZ
+      }
+    }
+  };
 }
 function applyShotDecision(decision) {
   setPlayVelocity(decision.playVelocity);
   setMoveVelocity(decision.moveVelocity);
   setBallPlayCoord(decision.play);
   setBallMoveCoord(decision.move);
+}
+function applyGravityShotDecision(player, context, decision) {
+  const gravityDecision = gravityBallisticShotDecision(player, context, decision);
+  applyShotDecision(gravityDecision);
+  const position = gravityDecision.world.position;
+  ball.prevWorldZ = position.z;
+  ball.worldZ = position.z;
+  ball.worldVz = gravityDecision.world.velocity.z;
+  ball.flightState = classifyBallFlightState({
+    z: ball.worldZ,
+    vz: ball.worldVz,
+    fixedZ: false
+  });
+  if (rallyState) {
+    rallyState.recordLobHeightFt(gravityDecision.world.apexZ);
+  }
+  return gravityDecision;
 }
 function aiPolicyByName(name) {
   return AI_POLICIES[name] || AI_POLICIES.baseline;
@@ -1792,10 +3439,118 @@ function aiDecisionDelta(activeDecision, shadowDecision) {
     Math.abs(activeDecision.targetPlay - shadowDecision.targetPlay)
   );
 }
+function aiWorldTargetSnapshot(player, context, decision) {
+  if (!player || !context || !decision) return null;
+  const worldTarget = worldPositionFromPlayMove({
+    play: decision.targetPlay,
+    move: decision.targetMove,
+    z: PLAYER_CONTACT_HEIGHT_FT
+  });
+  const roundTrip = worldToPlayMove(worldTarget);
+  return {
+    playerId: player.playerId,
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    serviceTurn: player.serviceTurn,
+    legacyTarget: {
+      play: decision.targetPlay,
+      move: decision.targetMove
+    },
+    worldTarget,
+    roundTrip,
+    errorsPx: {
+      play: Math.abs(roundTrip.play - decision.targetPlay),
+      move: Math.abs(roundTrip.move - decision.targetMove),
+      max: Math.max(
+        Math.abs(roundTrip.play - decision.targetPlay),
+        Math.abs(roundTrip.move - decision.targetMove)
+      )
+    },
+    selfWorld: context.world ? context.world.self : null,
+    ballWorld: context.world ? context.world.ball : null
+  };
+}
+function validateAIWorldTargetParityForDecision(player, context, decision, reportWarnings = true) {
+  const snapshot = aiWorldTargetSnapshot(player, context, decision);
+  if (!snapshot) return true;
+  if (snapshot.errorsPx.max <= AI_POLICY_TARGET_TOLERANCE_PX) return true;
+  const report = {
+    context: 'ai world target parity',
+    player: playerIdentitySnapshot(player),
+    rallyHitCount: context.rallyHitCount,
+    target: snapshot
+  };
+  aiWorldTargetWarnings.push(report);
+  if (reportWarnings) {
+    flagDebugWarning('ai world target mismatch', report);
+    console.warn('ai world target mismatch', report);
+  }
+  return false;
+}
+function inspectAIWorldContext(player) {
+  if (!player) return null;
+  const context = makeAIContext(player);
+  const before = cloneAIPolicyState(player);
+  const beforeGameSeed = gameSeed;
+  const decision = activeAIPolicy().decide(player, context);
+  const target = aiWorldTargetSnapshot(player, context, decision);
+  restoreAIPolicyState(player, before);
+  gameSeed = beforeGameSeed;
+  return {
+    playerId: player.playerId,
+    team: player.team,
+    roleLaneName: player.roleLaneName,
+    positionLaneName: player.positionLaneName,
+    isHuman: player.isHuman,
+    serviceTurn: player.serviceTurn,
+    decision,
+    target,
+    parityOk: !target || target.errorsPx.max <= AI_POLICY_TARGET_TOLERANCE_PX,
+    world: context.world
+  };
+}
+function getAIWorldContexts() {
+  return playersReady() ? allPaddles().map(inspectAIWorldContext) : [];
+}
+function inspectAIWorldInputContext(player) {
+  if (!player) return null;
+  const context = makeAIContext(player);
+  return aiWorldInputParityReport(context);
+}
+function getAIWorldInputContexts() {
+  return playersReady() ? allPaddles().map(inspectAIWorldInputContext) : [];
+}
+function validateAIWorldInputParity() {
+  if (!playersReady()) return true;
+  let ok = true;
+  for (const player of allPaddles()) {
+    const context = makeAIContext(player);
+    ok = validateAIWorldInputContext(context) && ok;
+  }
+  return ok;
+}
+function validateAIWorldTargetParity() {
+  if (!playersReady()) return true;
+  let ok = true;
+  for (const player of allPaddles()) {
+    const context = makeAIContext(player);
+    const before = cloneAIPolicyState(player);
+    const beforeGameSeed = gameSeed;
+    const decision = activeAIPolicy().decide(player, context);
+    const playerOk = validateAIWorldTargetParityForDecision(player, context, decision);
+    restoreAIPolicyState(player, before);
+    gameSeed = beforeGameSeed;
+    ok = playerOk && ok;
+  }
+  return ok;
+}
 function warnAIPolicyMismatch(player, context, activeDecision, shadowDecision, delta) {
   const report = {
     player: playerIdentitySnapshot(player),
     rallyHitCount: context.rallyHitCount,
+    activePolicy: ACTIVE_AI_POLICY_NAME,
+    shadowPolicy: SHADOW_AI_POLICY_NAME,
     activeDecision,
     shadowDecision,
     delta
@@ -1806,9 +3561,11 @@ function warnAIPolicyMismatch(player, context, activeDecision, shadowDecision, d
 }
 function decideAIPosition(player) {
   const context = makeAIContext(player);
+  validateAIWorldInputContext(context);
   const before = cloneAIPolicyState(player);
   const activePolicy = activeAIPolicy();
   const activeDecision = activePolicy.decide(player, context);
+  validateAIWorldTargetParityForDecision(player, context, activeDecision);
   const shadowPolicy = shadowAIPolicy();
   if (AI_POLICY_SHADOW_ENABLED && shadowPolicy) {
     const afterActive = cloneAIPolicyState(player);
@@ -1849,8 +3606,78 @@ function servePosition(dir = serveDir) {
   const move = paddleCenter(p);
   return { play, move };
 }
+function gravityServeLandingPlayCoord(dir = serveDir) {
+  return dir === 1
+    ? courtGeometry.apronPlayEnd
+    : courtGeometry.apronPlayStart;
+}
+function applyGravityServeArc(serveBall, dir = serveDir) {
+  if (!serveBall || activePhysicsModelName !== 'gravity') return serveBall;
+  const targetPlay = gravityServeLandingPlayCoord(dir);
+  const playVelocity = serveBall.playVelocity();
+  const framesToTarget = playVelocity
+    ? (targetPlay - serveBall.playCoord()) / playVelocity
+    : 0;
+  const secondsToTarget = framesToTarget > 0 ? framesToTarget / SIMULATION_FPS : 0;
+  resetBallFixedZ(serveBall);
+  if (secondsToTarget > 0) {
+    serveBall.worldVz = (BALL_GROUND_Z_FT - BALL_FIXED_HEIGHT_FT + 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * secondsToTarget * secondsToTarget) / secondsToTarget;
+    serveBall.flightState = classifyBallFlightState({
+      z: serveBall.worldZ,
+      vz: serveBall.worldVz,
+      fixedZ: false
+    });
+  }
+  return serveBall;
+}
+function gravityServeArcProbe(dir = serveDir) {
+  const serveBall = Ball.crossCourtServe(dir);
+  const receiver = receivingPaddleFor(dir);
+  const targetPlay = gravityServeLandingPlayCoord(dir);
+  const playVelocity = serveBall.playVelocity();
+  const framesToTarget = playVelocity
+    ? (targetPlay - serveBall.playCoord()) / playVelocity
+    : 0;
+  const secondsToTarget = framesToTarget > 0 ? framesToTarget / SIMULATION_FPS : 0;
+  const launchVz = secondsToTarget > 0
+    ? (BALL_GROUND_Z_FT - BALL_FIXED_HEIGHT_FT + 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * secondsToTarget * secondsToTarget) / secondsToTarget
+    : 0;
+  const receiverFront = receiver ? receiver.frontCoord() : null;
+  const framesToReceiver = receiverFront !== null && playVelocity
+    ? (receiverFront - serveBall.playCoord()) / playVelocity
+    : 0;
+  const secondsToReceiver = framesToReceiver > 0 ? framesToReceiver / SIMULATION_FPS : 0;
+  const receiverZ = secondsToReceiver > 0
+    ? BALL_FIXED_HEIGHT_FT + launchVz * secondsToReceiver - 0.5 * WORLD_GRAVITY_FT_PER_SEC2 * secondsToReceiver * secondsToReceiver
+    : BALL_FIXED_HEIGHT_FT;
+  const receiverBand = playerZCollisionBand(receiver);
+  return {
+    dir,
+    target: {
+      play: targetPlay,
+      worldY: worldYFromPlay(targetPlay),
+      label: 'far apron boundary'
+    },
+    serve: {
+      play: serveBall.playCoord(),
+      move: serveBall.moveCoord(),
+      playVelocity,
+      moveVelocity: serveBall.moveVelocity(),
+      launchVz
+    },
+    receiver: receiver ? {
+      playerId: receiver.playerId,
+      label: receiver.label,
+      front: receiverFront,
+      moveRange: { min: receiver.move, max: receiver.move + PADDLE_LEN },
+      zAtFront: receiverZ,
+      zBand: receiverBand,
+      zOverlap: receiverZ >= receiverBand.min && receiverZ <= receiverBand.max
+    } : null
+  };
+}
 function launchServeBall(dir = serveDir) {
-  return Ball.crossCourtServe(dir);
+  return applyGravityServeArc(Ball.crossCourtServe(dir), dir);
 }
 function playerDefinition(playerId) {
   return PLAYER_DEFS.find(def => def.playerId === playerId) || null;
@@ -1893,6 +3720,210 @@ function syncSimulationSpeed() {
   simulationSpeedScale = Number(simSpeedSlider.value) / 100;
   simSpeedReadout.textContent = `${simulationSpeedScale.toFixed(2)}x`;
 }
+function localStorageAvailable() {
+  try {
+    const key = '__picklePongStorageTest';
+    localStorage.setItem(key, '1');
+    localStorage.removeItem(key);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+function savedGameSettingsSnapshot() {
+  return {
+    physicsModel: activePhysicsModelName,
+    ballSpeedValue: speedSlider.value,
+    aiSpeedValue: aiSpeedSlider.value,
+    simSpeedValue: simSpeedSlider.value,
+    progressiveSpeedups,
+    humanEnabled
+  };
+}
+function applySavedGameSettings(settings = {}) {
+  if (settings.physicsModel !== undefined) {
+    setActivePhysicsModel(settings.physicsModel);
+  }
+  if (settings.ballSpeedValue !== undefined) {
+    speedSlider.value = settings.ballSpeedValue;
+    ballSpeedScale = Number(speedSlider.value) / 100;
+    speedReadout.textContent = `${speedSlider.value}%`;
+  }
+  if (settings.aiSpeedValue !== undefined) {
+    aiSpeedSlider.value = settings.aiSpeedValue;
+    syncAISpeed();
+  }
+  if (settings.simSpeedValue !== undefined) {
+    simSpeedSlider.value = settings.simSpeedValue;
+    syncSimulationSpeed();
+  }
+  if (settings.progressiveSpeedups !== undefined) {
+    progressiveSpeedups = !!settings.progressiveSpeedups;
+    speedupToggle.checked = progressiveSpeedups;
+  }
+  if (settings.humanEnabled !== undefined) {
+    humanEnabled = !!settings.humanEnabled;
+    humanToggle.checked = humanEnabled;
+  }
+}
+function pausedGameStoragePayload() {
+  if (!running || !paused) return null;
+  const game = orientationRestoreSnapshot();
+  if (!game) return null;
+  return {
+    version: SAVED_PAUSED_GAME_VERSION,
+    savedAt: new Date().toISOString(),
+    orientation,
+    settings: savedGameSettingsSnapshot(),
+    game
+  };
+}
+function readSavedPausedGame() {
+  if (!localStorageAvailable()) return null;
+  try {
+    const raw = localStorage.getItem(SAVED_PAUSED_GAME_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.version === SAVED_PAUSED_GAME_VERSION ? parsed : null;
+  } catch (error) {
+    flagDebugWarning('saved game read failed', { message: error.message });
+    return null;
+  }
+}
+function hasSavedPausedGame() {
+  return !!readSavedPausedGame();
+}
+function updateSavedGameControls() {
+  if (!restoreRow) return;
+  const hasSavedGame = !!readSavedPausedGame();
+  const canManageState = running && paused;
+  restoreRow.classList.toggle('visible', canManageState);
+  if (restoreStatus) restoreStatus.textContent = hasSavedGame ? 'saved state' : 'state';
+  if (saveGameBtn) saveGameBtn.disabled = !canManageState;
+  if (restoreGameBtn) restoreGameBtn.disabled = !hasSavedGame;
+  if (clearSavedGameBtn) clearSavedGameBtn.disabled = !hasSavedGame;
+  if (restoreGameBtn) restoreGameBtn.style.display = hasSavedGame ? '' : 'none';
+  if (clearSavedGameBtn) clearSavedGameBtn.style.display = hasSavedGame ? '' : 'none';
+}
+function savePausedGameToLocalStorage() {
+  if (!localStorageAvailable()) return false;
+  const payload = pausedGameStoragePayload();
+  if (!payload) return false;
+  try {
+    localStorage.setItem(SAVED_PAUSED_GAME_KEY, JSON.stringify(payload));
+    updateSavedGameControls();
+    return true;
+  } catch (error) {
+    flagDebugWarning('saved game write failed', { message: error.message });
+    return false;
+  }
+}
+function clearSavedPausedGame() {
+  if (!localStorageAvailable()) return;
+  localStorage.removeItem(SAVED_PAUSED_GAME_KEY);
+  updateSavedGameControls();
+}
+function restoreSavedPausedGame() {
+  const saved = readSavedPausedGame();
+  if (!saved || !saved.game) return false;
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  clearAutoNextGame();
+  resetReplayCache();
+  applySavedGameSettings(saved.settings);
+  orientation = saved.orientation === 'landscape' ? 'landscape' : 'portrait';
+  setCanvasForOrientation();
+  const restored = restoreOrientationSnapshot(saved.game);
+  if (!restored) return false;
+  syncHumanMode();
+  btnStart.textContent = 'restart';
+  btnPause.textContent = 'resume';
+  btnOrient.textContent = orientation === 'portrait' ? 'landscape' : 'portrait';
+  msgEl.textContent = scoreKeeper.pauseText();
+  updateInfoText();
+  if (localStorageAvailable()) localStorage.removeItem(SAVED_PAUSED_GAME_KEY);
+  updateSavedGameControls();
+  draw();
+  return true;
+}
+function normalizeRestoredRallyPhase() {
+  if (!rallyState || !scoreKeeper) return;
+  if (rallyState.servingTeamAtStart === null || rallyState.servingTeamAtStart === undefined) {
+    rallyState.servingTeamAtStart = scoreKeeper.servingTeam;
+  }
+  if (!Array.isArray(rallyState.teamHits) || rallyState.teamHits.length !== 2) {
+    rallyState.teamHits = [0, 0];
+  }
+  if (!Array.isArray(rallyState.events)) {
+    rallyState.events = [];
+  }
+  if (serving && rallyState.hitCount === 0) {
+    const server = currentServingPlayer();
+    if (server) rallyState.recordHit(server, 'serve');
+  }
+}
+function orientationRestoreSnapshot() {
+  if (!running || !scoreKeeper || !rallyState || !ball || !playersReady()) return null;
+  return {
+    score: scoreKeeper.snapshot(),
+    rally: rallyState.snapshot(),
+    physicsModel: activePhysicsModelName,
+    flags: {
+      running,
+      paused: true,
+      serving,
+      resolvingPoint,
+      formingForServe
+    },
+    serveDir,
+    pendingRallyWinner,
+    pendingRallyResult: pendingRallyResult ? { ...pendingRallyResult } : null,
+    faultMarker: faultMarker
+      ? { ...faultMarker, world: playMoveToWorld({ play: faultMarker.play, move: faultMarker.move }) }
+      : null,
+    ball: ballWorldShadowSnapshot(ball),
+    players: playerWorldShadowSnapshots()
+  };
+}
+function restoreOrientationSnapshot(snapshot) {
+  if (!snapshot) return false;
+  try {
+    scoreKeeper.restore(snapshot.score);
+    initState();
+    scoreKeeper.restore(snapshot.score);
+    rallyState.restore(snapshot.rally);
+    setActivePhysicsModel(snapshot.physicsModel || DEFAULT_PHYSICS_MODEL_NAME);
+    assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+    for (const playerShadow of snapshot.players || []) applyPlayerWorldShadow(playerShadow);
+    applyBallWorldShadow(snapshot.ball);
+    running = snapshot.flags.running;
+    paused = true;
+    serving = !!snapshot.flags.serving;
+    resolvingPoint = !!snapshot.flags.resolvingPoint;
+    formingForServe = false;
+    formationTargets = [];
+    liveSimulationAccumulator = 0;
+    serveDir = snapshot.serveDir;
+    pendingRallyWinner = snapshot.pendingRallyWinner;
+    pendingRallyResult = snapshot.pendingRallyResult ? { ...snapshot.pendingRallyResult } : null;
+    if (snapshot.faultMarker && snapshot.faultMarker.world) {
+      const markerPlayMove = worldToPlayMove(snapshot.faultMarker.world);
+      faultMarker = makeFaultMarker(markerPlayMove.play, markerPlayMove.move, snapshot.faultMarker.winner);
+    } else {
+      faultMarker = snapshot.faultMarker ? { ...snapshot.faultMarker } : null;
+    }
+    normalizeRestoredRallyPhase();
+    clearBallHandoffAnimation();
+    validateRestoredPlayerShadows(snapshot.players, 'orientation restore source');
+    validateWorldShadows('orientation restore');
+    validateServingAssignments('orientation restore');
+    updateReplayControls();
+    return true;
+  } catch (error) {
+    flagDebugWarning('orientation restore failed', { message: error.message, stack: error.stack });
+    console.warn('orientation restore failed', error);
+    return false;
+  }
+}
 function initState() {
   playersById = {};
   for (const def of PLAYER_DEFS) {
@@ -1903,8 +3934,9 @@ function initState() {
   assignServiceTurnsForTeam(scoreKeeper ? scoreKeeper.servingTeam : (courtGeometry.isPortrait ? 1 : 0));
   placePlayersForServe();
   ball = scoreKeeper ? launchServeBall(scoreKeeper.servingDir()) : launchBall(gameRandom() < 0.5 ? 1 : -1);
+  validateWorldShadows('init state');
 }
-function rebuildForOrientation(keepScores = true) {
+function rebuildForOrientation(keepScores = true, restoreSnapshot = null) {
   clearBallHandoffAnimation();
   formingForServe = false;
   formationTargets = [];
@@ -1912,11 +3944,14 @@ function rebuildForOrientation(keepScores = true) {
   resetReplayCache();
   const oldScores = keepScores ? scoreKeeper.snapshot() : { points: [0, 0], servingTeam: courtGeometry.isPortrait ? 1 : 0, serverNumber: 2, openingServerException: true };
   setCanvasForOrientation();
-  scoreKeeper.restore(oldScores);
-  initState();
-  assignServiceTurnsForTeam(scoreKeeper.servingTeam);
-  serving = false;
-  paused = running ? true : false;
+  const restored = restoreSnapshot ? restoreOrientationSnapshot(restoreSnapshot) : false;
+  if (!restored) {
+    scoreKeeper.restore(oldScores);
+    initState();
+    assignServiceTurnsForTeam(scoreKeeper.servingTeam);
+    serving = false;
+    paused = running ? true : false;
+  }
   btnPause.textContent = paused ? 'resume' : 'pause';
   btnOrient.textContent = orientation === 'portrait' ? 'landscape' : 'portrait';
   updateInfoText();
@@ -1927,6 +3962,7 @@ function resetPlayers({ animateTeams = [] } = {}) {
   validatePlayerIdentityParity('before reset players');
   for (const p of allPaddles()) p.reset({ snapMove: !animateTeams.includes(p.team), snapPlay: !animateTeams.includes(p.team) });
   validatePlayerIdentityParity('after reset players');
+  validatePlayerWorldShadows('after reset players');
 }
 function startFormationForServe() {
   validatePlayerIdentityParity('before formation for serve');
@@ -1974,8 +4010,30 @@ function makeFaultMarker(play, move, winner, { clampToCourt = false } = {}) {
     ? { x: markerMove, y: markerPlay, play: markerPlay, move: markerMove, winner }
     : { x: markerPlay, y: markerMove, play: markerPlay, move: markerMove, winner };
 }
+function makeFaultMarkerFromWorld(position, winner) {
+  const playMove = worldToPlayMove(position);
+  return makeFaultMarker(playMove.play, playMove.move, winner);
+}
 function markerForGameDecision(winner) {
   return makeFaultMarker(ball.playCoord(), ball.moveCoord(), winner);
+}
+function stopBallAtWorldPosition(position) {
+  if (!position || !ball) return;
+  const playMove = worldToPlayMove(position);
+  ball.setPlayCoord(playMove.play);
+  ball.setMoveCoord(playMove.move);
+  ball.prevX = ball.x;
+  ball.prevY = ball.y;
+  ball.prevWorldZ = position.z;
+  ball.worldZ = position.z;
+  ball.worldVz = 0;
+  ball.setPlayVelocity(0);
+  ball.setMoveVelocity(0);
+  ball.flightState = classifyBallFlightState({
+    z: ball.worldZ,
+    vz: ball.worldVz,
+    fixedZ: activePhysicsModelName !== 'gravity'
+  });
 }
 function updateFormationForServe() {
   const elapsed = performance.now() - formationStartTime;
@@ -2005,6 +4063,7 @@ function startServe(dir) {
   serving = true; serveDir = dir; serveStartTime = performance.now();
   placePlayersForServe();
   ball = launchServeBall(dir);
+  validateWorldShadows('start serve');
   validatePlayerIdentityParity('start serve identity');
   validateServingAssignments('start serve');
   rallyState.startServe({ servingTeam: scoreKeeper.servingTeam, server: currentServingPlayer(), dir, serveSpeedMph: ballSpeedMph(ball) });
@@ -2179,14 +4238,18 @@ function updatePaddles() {
 }
 function updateServe() {
   ball = launchServeBall(serveDir);
+  validateWorldShadows('serve countdown');
   const elapsed = performance.now() - serveStartTime;
   const dots = '.'.repeat(Math.min(3, Math.floor(elapsed / (SERVE_DELAY_MS / 3)) + 1));
   msgEl.textContent = scoreKeeper.serveText(dots);
-  if (elapsed >= SERVE_DELAY_MS) { serving = false; ball = launchServeBall(serveDir); rallyState.markServeReleased(performance.now()); updateScoreMessage(); }
+  if (elapsed >= SERVE_DELAY_MS) { serving = false; ball = launchServeBall(serveDir); validateWorldShadows('serve release'); rallyState.markServeReleased(performance.now()); updateScoreMessage(); }
 }
 function recordPaddleHit(p) { rallyState.recordPaddleHit(p); }
-function checkPaddleHit(p) {
-  const hit = p.checkHit();
+function checkPaddleHit(p, context = 'live paddle collision') {
+  const worldCollisionPrediction = worldPaddleCollisionPrediction(p);
+  const legacyHit = legacyPaddleCollisionHit(p);
+  validateWorldPaddleCollisionPrediction(p, worldCollisionPrediction, legacyHit, context);
+  const hit = applyWorldPaddleCollision(p, worldCollisionPrediction);
   if (hit) recordPaddleHit(p);
   return hit;
 }
@@ -2257,21 +4320,152 @@ function runCollisionWatchSelfTest() {
   updateScoreboard();
   return result;
 }
+const PHYSICS_MODELS = {
+  pong: {
+    name: 'pong',
+    version: 1,
+    description: 'Current fixed-height pong-style ball model',
+    integrateBall(scale, context = '') {
+      const advanced = advanceBallFromWorld(scale, context);
+      resetBallFixedZ();
+      return advanced;
+    },
+    validateIntegratedBall(context = '') {
+      return validateWorldShadows(context);
+    },
+    resolveWallBounce(context = '') {
+      const prediction = worldBouncePredictionForBall();
+      applyWorldBouncePrediction(prediction);
+      validateWorldBouncePrediction(prediction, context);
+      return prediction;
+    },
+    resolvePaddleCollision(player, context = '') {
+      return checkPaddleHit(player, context);
+    },
+    limitBallSpeed() {
+      ball.limitSpeed();
+    },
+    resolveNetFault(context = '') {
+      const prediction = worldNetFaultPredictionForBall();
+      validateWorldNetFaultPrediction(prediction, context);
+      return prediction;
+    },
+    resolveGroundFault() {
+      return null;
+    },
+    resolveCourtFault() {
+      return worldScoreForBallPosition(worldBallSnapshot(ball).position);
+    },
+    legacyCourtFault() {
+      return courtGeometry.scoreForPlayCoord(playCoordOfBall());
+    }
+  },
+  gravity: {
+    name: 'gravity',
+    version: 0,
+    description: 'Gravity-ready model with z/vz integration and existing flat x/y projection',
+    integrateBall(scale, context = '') {
+      return advanceBallWithGravityFromWorld(scale, context);
+    },
+    validateIntegratedBall(...args) {
+      return PHYSICS_MODELS.pong.validateIntegratedBall(...args);
+    },
+    resolveWallBounce(...args) {
+      return PHYSICS_MODELS.pong.resolveWallBounce(...args);
+    },
+    resolvePaddleCollision(...args) {
+      return PHYSICS_MODELS.pong.resolvePaddleCollision(...args);
+    },
+    limitBallSpeed(...args) {
+      return PHYSICS_MODELS.pong.limitBallSpeed(...args);
+    },
+    resolveNetFault(...args) {
+      return PHYSICS_MODELS.pong.resolveNetFault(...args);
+    },
+    resolveGroundFault() {
+      return worldGroundFaultPredictionForBall();
+    },
+    resolveCourtFault(...args) {
+      return PHYSICS_MODELS.pong.resolveCourtFault(...args);
+    },
+    legacyCourtFault(...args) {
+      return PHYSICS_MODELS.pong.legacyCourtFault(...args);
+    }
+  }
+};
+function physicsModelNames() {
+  return Object.keys(PHYSICS_MODELS);
+}
+function activePhysicsModel() {
+  return PHYSICS_MODELS[activePhysicsModelName] || PHYSICS_MODELS[DEFAULT_PHYSICS_MODEL_NAME];
+}
+function setActivePhysicsModel(name = DEFAULT_PHYSICS_MODEL_NAME) {
+  if (!PHYSICS_MODELS[name]) {
+    const report = { requested: name, available: physicsModelNames() };
+    flagDebugWarning('unknown physics model', report);
+    console.warn('unknown physics model', report);
+    return false;
+  }
+  activePhysicsModelName = name;
+  syncPhysicsButton();
+  return true;
+}
+function physicsModelSnapshot() {
+  const model = activePhysicsModel();
+  return {
+    active: model.name,
+    version: model.version,
+    available: physicsModelNames()
+  };
+}
+function syncPhysicsButton() {
+  if (!btnPhysics) return;
+  btnPhysics.textContent = activePhysicsModelName === 'gravity' ? 'gravity physics' : 'pong physics';
+  btnPhysics.title = activePhysicsModelName === 'gravity'
+    ? 'active physics model: gravity'
+    : 'active physics model: pong';
+}
+function togglePhysicsModel() {
+  setActivePhysicsModel(activePhysicsModelName === 'gravity' ? 'pong' : 'gravity');
+  if (running && !paused) updateScoreMessage();
+  draw();
+}
 function currentBallStepDistance(scale) {
   return Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) * scale;
 }
-function advanceLiveBallStep(scale) {
-  ball.advance(scale);
+function stepWorldPhysics(scale) {
+  const model = activePhysicsModel();
+  model.integrateBall(scale, 'live world advance');
+  model.validateIntegratedBall('live advance');
   if (rallyState) rallyState.recordSpeedMph(ballSpeedMph(ball));
-  ball.bounceOffMoveWalls();
+  model.resolveWallBounce('live bounce');
   const defendingPaddles = teamPaddlesForDirection(playVelocity());
   let hitRecorded = false;
-  for (const p of defendingPaddles) if (checkPaddleHit(p)) { hitRecorded = true; break; }
-  ball.limitSpeed();
-  const winner = courtGeometry.scoreForPlayCoord(playCoordOfBall());
+  for (const p of defendingPaddles) if (model.resolvePaddleCollision(p, 'live paddle collision')) { hitRecorded = true; break; }
+  model.limitBallSpeed();
+  const legacyWinner = model.legacyCourtFault();
+  const netFault = model.resolveNetFault('live net fault');
+  if (rallyState && netFault && netFault.crossedNet && netFault.impactPosition) {
+    rallyState.recordNetClearanceFt(netFault.impactPosition.z - NET_HEIGHT_FT);
+  }
+  const groundFault = model.resolveGroundFault('live ground fault');
+  const winner = netFault && netFault.winner !== null
+    ? netFault.winner
+    : groundFault && groundFault.winner !== null
+      ? groundFault.winner
+      : model.resolveCourtFault();
+  if (legacyWinner !== winner) validateWorldFaultPrediction(legacyWinner, 'live fault legacy shadow');
   checkMissedPaddleCollision(defendingPaddles, hitRecorded, winner);
+  return { hitRecorded, winner, netFault, groundFault };
+}
+function advanceLiveBallStep(scale) {
+  const { hitRecorded, winner, netFault, groundFault } = stepWorldPhysics(scale);
   if (winner !== null) {
-    faultMarker = markerForGameDecision(winner);
+    const netImpact = netFault && netFault.winner !== null ? netFault.impactPosition : null;
+    const groundImpact = groundFault && groundFault.winner !== null ? groundFault.impactPosition : null;
+    const impact = netImpact || groundImpact;
+    if (impact) stopBallAtWorldPosition(impact);
+    faultMarker = impact ? makeFaultMarkerFromWorld(impact, winner) : markerForGameDecision(winner);
     recordReplaySnapshot({ force: true });
     startPointResolution(winner);
   }
@@ -2306,8 +4500,10 @@ function update() {
   if (formingForServe) { updateFormationForServe(); return; }
   if (resolvingPoint) {
     if (!pendingRallyResult) {
-      ball.advance(ballSpeedScale);
-      if (ball.leftWorldBounds() || performance.now() - pointResolveStartTime >= OUT_BALL_FOLLOW_MS) acknowledgePointResolution();
+      advanceBallFromWorld(ballSpeedScale, 'dead-ball world advance');
+      const leftBounds = ball.leftWorldBounds();
+      validateWorldDeadBallBounds(leftBounds, 'dead-ball follow bounds');
+      if (leftBounds || performance.now() - pointResolveStartTime >= OUT_BALL_FOLLOW_MS) acknowledgePointResolution();
     } else if (performance.now() - pointResolveStartTime >= RESULT_DISPLAY_DELAY_MS) {
       finishPointResolution();
     }
@@ -2351,6 +4547,20 @@ function drawPickleballCourt() {
     ctx.moveTo(ps, (ms + me) / 2); ctx.lineTo(net - k, (ms + me) / 2); ctx.moveTo(net + k, (ms + me) / 2); ctx.lineTo(pe, (ms + me) / 2);
   }
   ctx.stroke();
+  drawCourtLandmark();
+}
+function drawCourtLandmark() {
+  const play = (courtGeometry.apronPlayEnd + courtGeometry.playSize) / 2;
+  const move = (courtGeometry.apronMoveStart + courtGeometry.apronMoveEnd) / 2;
+  const x = courtGeometry.isPortrait ? move : play;
+  const y = courtGeometry.isPortrait ? play : move;
+  ctx.save();
+  ctx.font = 'bold 11px "Courier New"';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255,255,255,0.34)';
+  ctx.fillText('SEA', x, y);
+  ctx.restore();
 }
 function drawPaddle(p) { p.draw(ctx); }
 function drawBallAt(x, y, color = '#ffffff', radius = BALL_R) {
@@ -2410,12 +4620,13 @@ function drawReplayPaddle(p, snapshot) {
 }
 function drawReplayBall(snapshot) {
   const trail = snapshot.ball.trail || [];
+  const flightColor = ballColorForFlightState(snapshot.ball.flightState);
   for (const ghost of BALL_TRAIL_GHOSTS) {
     const point = trail[ghost.index];
     if (!point) continue;
     drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
   }
-  drawBallAt(snapshot.ball.x, snapshot.ball.y);
+  drawBallAt(snapshot.ball.x, snapshot.ball.y, flightColor);
 }
 function drawReplaySnapshot(snapshot) {
   if (!snapshot || snapshot.orientation !== orientation || snapshot.width !== W || snapshot.height !== H) {
@@ -2497,6 +4708,7 @@ function startGame() {
   rallyState.resetGameStats();
   resetGameHistory();
   msgEl.textContent = ''; btnStart.textContent = 'restart'; btnPause.textContent = 'pause';
+  updateSavedGameControls();
   initState(); assignServiceTurnsForTeam(scoreKeeper.servingTeam); startServe(scoreKeeper.servingDir()); ensureLoop();
 }
 function shouldAutoStartOnLoad() {
@@ -2511,19 +4723,22 @@ function togglePause() {
     anim = null;
     msgEl.textContent = scoreKeeper.pauseText();
     updateReplayControls();
+    updateSavedGameControls();
     draw();
   }
   else {
     replayScrubbing = false;
     updateReplayControls();
+    updateSavedGameControls();
     if (serving) serveStartTime = performance.now(); else if (resolvingPoint) pointResolveStartTime = performance.now(); else if (formingForServe) resumeFormationFromCurrent(); else updateScoreMessage();
     ensureLoop();
   }
 }
 function toggleOrientation() {
   if (anim) { cancelAnimationFrame(anim); anim = null; }
+  const snapshot = orientationRestoreSnapshot();
   orientation = orientation === 'landscape' ? 'portrait' : 'landscape';
-  rebuildForOrientation(true);
+  rebuildForOrientation(true, snapshot);
 }
 function showHelp() { if (running && !paused) togglePause(); overlay.classList.add('visible'); }
 function hideHelp() { overlay.classList.remove('visible'); }
@@ -2531,6 +4746,7 @@ function hideHelp() { overlay.classList.remove('visible'); }
 btnStart.addEventListener('click', startGame);
 btnPause.addEventListener('click', togglePause);
 btnOrient.addEventListener('click', toggleOrientation);
+btnPhysics.addEventListener('click', togglePhysicsModel);
 btnHelp.addEventListener('click', showHelp);
 helpClose.addEventListener('click', hideHelp);
 overlay.addEventListener('click', e => { if (e.target === overlay) hideHelp(); });
@@ -2556,6 +4772,9 @@ replaySlider.addEventListener('keydown', e => {
 });
 if (replayPrevBtn) replayPrevBtn.addEventListener('click', () => stepReplayFrame(-1));
 if (replayNextBtn) replayNextBtn.addEventListener('click', () => stepReplayFrame(1));
+if (saveGameBtn) saveGameBtn.addEventListener('click', savePausedGameToLocalStorage);
+if (restoreGameBtn) restoreGameBtn.addEventListener('click', restoreSavedPausedGame);
+if (clearSavedGameBtn) clearSavedGameBtn.addEventListener('click', clearSavedPausedGame);
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === ' ') {
@@ -2574,14 +4793,59 @@ document.addEventListener('keyup', e => { keys[e.key] = false; });
 
 scoreKeeper = new ScoreKeeper(SCORE_LIMIT);
 rallyState = new RallyState();
+syncPhysicsButton();
 setCanvasForOrientation(); initState(); updateInfoText(); draw();
+updateSavedGameControls();
 window.__picklePongDebug = {
   runCollisionWatchSelfTest,
   resetCollisionWatch,
   clearDebugWarnings,
   setGameSeed,
   resetGameRng,
-  getGameSeed: () => ({ configuredGameSeed, currentGameSeed: gameSeed })
+  getGameSeed: () => ({ configuredGameSeed, currentGameSeed: gameSeed }),
+  getWorldBall: () => worldBallSnapshot(ball),
+  getWorldPlayers: () => worldPlayerSnapshots(),
+  getWorldSnapshot: () => worldGameSnapshot(),
+  getWorldPhysicsState: () => worldPhysicsStateSnapshot(ballSpeedScale),
+  getPhysicsModel: physicsModelSnapshot,
+  setPhysicsModel: setActivePhysicsModel,
+  getBallFlightState: ballFlightStateSnapshot,
+  getWorldAdvancePrediction: () => worldAdvanceBallStepPrediction(ballSpeedScale),
+  testZCollision,
+  testNetClearance,
+  testNetFault,
+  getGravityServeArcProbe: gravityServeArcProbe,
+  advanceBallFromWorld,
+  applyWorldBouncePrediction,
+  applyWorldPaddleCollision,
+  getWorldPaddleCollisionPredictions: () => playersReady() ? allPaddles().map(worldPaddleCollisionPrediction) : [],
+  validateWorldPhysicsState,
+  getWorldBallSpeedMph: () => worldBallSpeedMph(ball, ballSpeedScale),
+  getWorldAIContexts,
+  validateWorldAIContexts,
+  getAIPolicyNames: () => ({ active: ACTIVE_AI_POLICY_NAME, shadow: SHADOW_AI_POLICY_NAME }),
+  getShotPolicyNames: () => ({ active: ACTIVE_SHOT_POLICY_NAME, shadow: SHADOW_SHOT_POLICY_NAME }),
+  getAIWorldContexts,
+  getAIWorldInputContexts,
+  validateAIWorldTargetParity,
+  validateAIWorldInputParity,
+  getBallWorldShadow: () => ballWorldShadowSnapshot(ball),
+  getPlayerWorldShadows: () => playerWorldShadowSnapshots(),
+  validateWorldSnapshots,
+  validateBallWorldShadow,
+  validatePlayerWorldShadows,
+  validateWorldShadows,
+  getWorldShadowMismatches: () => worldShadowMismatches.slice(),
+  getAIPolicyShadowWarnings: () => aiPolicyShadowWarnings.slice(),
+  getShotPolicyShadowWarnings: () => shotPolicyShadowWarnings.slice(),
+  getWorldPhysicsWarnings: () => worldPhysicsWarnings.slice(),
+  getAIWorldTargetWarnings: () => aiWorldTargetWarnings.slice(),
+  getAIWorldInputWarnings: () => aiWorldInputWarnings.slice(),
+  getWorldAIContextWarnings: () => worldAIContextWarnings.slice(),
+  savePausedGameToLocalStorage,
+  restoreSavedPausedGame,
+  clearSavedPausedGame,
+  readSavedPausedGame
 };
 if (shouldAutoStartOnLoad()) startGame();
 </script>
