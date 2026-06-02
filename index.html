@@ -364,7 +364,9 @@ const BALL_FIXED_HEIGHT_FT = 3.2;
 const BALL_GROUND_Z_FT = PICKLEBALL_NOMINAL_RADIUS_FT;
 const BALL_SHADOW_ENABLED = true;
 const BALL_SHADOW_GRAVITY_ONLY = true;
-const BALL_SHADOW_LIGHT = { x: -12, y: 'net', z: 28 };
+const SHADOW_SUN_DIRECTION = { x: -1, y: 0.18, z: -2 };
+const PLAYER_REACH_SHADOW_ENABLED = true;
+const PLAYER_REACH_SHADOW_GRAVITY_ONLY = true;
 const WORLD_GRAVITY_FT_PER_SEC2 = 32.174;
 const GRAVITY_COURT_BOUNCE_RESTITUTION = 0.62;
 const NET_CENTER_HEIGHT_FT = 34 / 12;
@@ -1427,6 +1429,23 @@ function validateBallWorldShadow(context = '') {
   }
   return ok;
 }
+function playerContactVolumeFromLegacyPosition({ team, play, move }) {
+  const centerX = pixelsToWorldFeet(move + PADDLE_LEN / 2);
+  const contactPlaneY = worldYFromPlay(team === 0 ? play + PADDLE_THICK : play);
+  return {
+    centerX,
+    planeY: contactPlaneY,
+    minX: centerX - PLAYER_CONTACT_WIDTH_FT / 2,
+    maxX: centerX + PLAYER_CONTACT_WIDTH_FT / 2,
+    minY: team === 0 ? contactPlaneY - PLAYER_CONTACT_DEPTH_FT : contactPlaneY,
+    maxY: team === 0 ? contactPlaneY : contactPlaneY + PLAYER_CONTACT_DEPTH_FT,
+    minZ: PLAYER_REACH_MIN_FT,
+    maxZ: PLAYER_REACH_MAX_FT,
+    widthFt: PLAYER_CONTACT_WIDTH_FT,
+    depthFt: PLAYER_CONTACT_DEPTH_FT,
+    contactHeightFt: PLAYER_CONTACT_HEIGHT_FT
+  };
+}
 function worldPlayerSnapshot(player) {
   if (!player) return null;
   const position = worldPositionFromPlayMove({
@@ -1438,20 +1457,7 @@ function worldPlayerSnapshot(player) {
     playVelocity: player.vPlay,
     moveVelocity: player.vMove
   });
-  const contactPlaneY = worldYFromPlay(player.frontCoord());
-  const contactVolume = {
-    centerX: position.x,
-    planeY: contactPlaneY,
-    minX: position.x - PLAYER_CONTACT_WIDTH_FT / 2,
-    maxX: position.x + PLAYER_CONTACT_WIDTH_FT / 2,
-    minY: player.team === 0 ? contactPlaneY - PLAYER_CONTACT_DEPTH_FT : contactPlaneY,
-    maxY: player.team === 0 ? contactPlaneY : contactPlaneY + PLAYER_CONTACT_DEPTH_FT,
-    minZ: PLAYER_REACH_MIN_FT,
-    maxZ: PLAYER_REACH_MAX_FT,
-    widthFt: PLAYER_CONTACT_WIDTH_FT,
-    depthFt: PLAYER_CONTACT_DEPTH_FT,
-    contactHeightFt: PLAYER_CONTACT_HEIGHT_FT
-  };
+  const contactVolume = playerContactVolumeFromLegacyPosition(player);
   return {
     type: 'WorldPlayer',
     version: WORLD_MODEL_VERSION,
@@ -5066,33 +5072,32 @@ function drawCourtLandmark() {
   ctx.restore();
 }
 function drawPaddle(p) { p.draw(ctx); }
-function ballShadowLightWorldPosition() {
+function worldPointGroundShadowProjection(worldPoint) {
+  if (SHADOW_SUN_DIRECTION.z >= -0.001) return null;
+  const scale = worldPoint.z / -SHADOW_SUN_DIRECTION.z;
   return {
-    x: BALL_SHADOW_LIGHT.x,
-    y: BALL_SHADOW_LIGHT.y === 'net' ? pixelsToWorldFeet(courtGeometry.net) : BALL_SHADOW_LIGHT.y,
-    z: BALL_SHADOW_LIGHT.z
+    x: worldPoint.x - SHADOW_SUN_DIRECTION.x * scale,
+    y: worldPoint.y - SHADOW_SUN_DIRECTION.y * scale
+  };
+}
+function worldPointToCanvas({ x, y }) {
+  const playMove = worldToPlayMove({ x, y });
+  return {
+    x: courtGeometry.isPortrait ? playMove.move : playMove.play,
+    y: courtGeometry.isPortrait ? playMove.play : playMove.move
   };
 }
 function ballGroundShadowProjection({ x, y, z = BALL_FIXED_HEIGHT_FT, physicsModelName = activePhysicsModelName } = {}) {
   if (!BALL_SHADOW_ENABLED || (BALL_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return null;
-  const light = ballShadowLightWorldPosition();
   const worldBall = worldPositionFromPlayMove({
     play: courtGeometry.isPortrait ? y : x,
     move: courtGeometry.isPortrait ? x : y,
     z
   });
-  const denominator = worldBall.z - light.z;
-  if (Math.abs(denominator) < 0.001) return null;
-  const scale = -light.z / denominator;
-  if (scale < 1) return null;
-  const shadowWorld = {
-    x: light.x + (worldBall.x - light.x) * scale,
-    y: light.y + (worldBall.y - light.y) * scale
-  };
-  const shadowPlayMove = worldToPlayMove(shadowWorld);
+  const shadowWorld = worldPointGroundShadowProjection(worldBall);
+  if (!shadowWorld) return null;
   return {
-    x: courtGeometry.isPortrait ? shadowPlayMove.move : shadowPlayMove.play,
-    y: courtGeometry.isPortrait ? shadowPlayMove.play : shadowPlayMove.move,
+    ...worldPointToCanvas(shadowWorld),
     heightFt: Math.max(0, worldBall.z - BALL_GROUND_Z_FT)
   };
 }
@@ -5110,6 +5115,56 @@ function drawBallGroundShadow(ballState) {
   ctx.ellipse(0, 0, BALL_R * (0.82 + heightScale * 0.045), BALL_R * (0.48 + heightScale * 0.024), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+}
+function convexHull(points) {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (sorted.length <= 2) return sorted;
+  const cross = (origin, a, b) => (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+  const lower = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (const point of sorted.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+function playerReachShadowPolygon(playerState, physicsModelName = activePhysicsModelName) {
+  if (!PLAYER_REACH_SHADOW_ENABLED || (PLAYER_REACH_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return [];
+  const volume = playerContactVolumeFromLegacyPosition(playerState);
+  const points = [];
+  for (const x of [volume.minX, volume.maxX]) {
+    for (const y of [volume.minY, volume.maxY]) {
+      for (const z of [volume.minZ, volume.maxZ]) {
+        const shadowWorld = worldPointGroundShadowProjection({ x, y, z });
+        if (shadowWorld) points.push(worldPointToCanvas(shadowWorld));
+      }
+    }
+  }
+  return convexHull(points);
+}
+function drawPlayerReachShadow(playerState, physicsModelName = activePhysicsModelName) {
+  const polygon = playerReachShadowPolygon(playerState, physicsModelName);
+  if (polygon.length < 3) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,18,16,0.052)';
+  ctx.strokeStyle = 'rgba(8,18,16,0.09)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(polygon[0].x, polygon[0].y);
+  for (let i = 1; i < polygon.length; i++) ctx.lineTo(polygon[i].x, polygon[i].y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+function drawPlayerReachShadows(players, physicsModelName = activePhysicsModelName) {
+  for (const player of players) drawPlayerReachShadow(player, physicsModelName);
 }
 function drawBallAt(x, y, color = '#ffffff', radius = BALL_R) {
   ctx.fillStyle = color;
@@ -5252,6 +5307,7 @@ function drawReplaySnapshot(snapshot) {
   }
   ctx.clearRect(0, 0, W, H);
   drawPickleballCourt();
+  drawPlayerReachShadows(snapshot.paddles, snapshot.physicsModel);
   drawBallGroundShadow({
     x: snapshot.ball.x,
     y: snapshot.ball.y,
@@ -5302,6 +5358,7 @@ function draw() {
   }
   ctx.clearRect(0, 0, W, H); drawPickleballCourt();
   const handoffBall = currentBallHandoffPosition();
+  drawPlayerReachShadows(allPaddles());
   if (!handoffBall) drawBallGroundShadow({ x: ball.x, y: ball.y, z: ballZ(ball) });
   for (const p of allPaddles()) drawPaddle(p);
   if (handoffBall) drawBallAt(handoffBall.x, handoffBall.y, 'rgba(210,210,210,0.78)');
