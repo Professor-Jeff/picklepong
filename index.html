@@ -221,7 +221,7 @@
           shadows
         </label>
         <label id="sound-control" for="sound-toggle">
-          <input id="sound-toggle" type="checkbox" checked>
+          <input id="sound-toggle" type="checkbox">
           sound
         </label>
       </div>
@@ -381,6 +381,12 @@ const PADDLE_HIT_SOUND_SRCS = ['pb_hit1.wav', 'pb_hit2.wav'];
 const PADDLE_HIT_SOUND_VOLUME = 0.42;
 const PADDLE_HIT_SOUND_UNLOCK_VOLUME = 0.001;
 const PADDLE_HIT_SOUND_POOL_SIZE = 4;
+const COURT_BOUNCE_SOUND_SRC = 'pb_bounce1.wav';
+const COURT_BOUNCE_SOUND_VOLUME = 0.34;
+const COURT_BOUNCE_SOUND_POOL_SIZE = 3;
+const FAULT_SOUND_SRC = 'pb_fault1.wav';
+const FAULT_SOUND_VOLUME = 0.42;
+const FAULT_SOUND_POOL_SIZE = 2;
 const WORLD_GRAVITY_FT_PER_SEC2 = 32.174;
 const GRAVITY_COURT_BOUNCE_RESTITUTION = 0.62;
 const NET_CENTER_HEIGHT_FT = 34 / 12;
@@ -401,7 +407,7 @@ const GRAVITY_SHOT_PROFILE = {
   handBattleLobChance: 0.08,
   handBattleLobApexFt: 9,
   handBattleTargetMarginFt: 0.75,
-  handBattleNetClearanceFt: 0.28,
+  handBattleNetClearanceFt: 0.31,
   handBattleNetClearanceJitterFt: 0.35,
   handBattleMinFlightTimeSec: 0.18,
   handBattleMaxFlightTimeSec: 0.9,
@@ -419,7 +425,6 @@ const PLAYER_CONTACT_WIDTH_FT = 2.875;
 const PLAYER_CONTACT_DEPTH_FT = 0.625;
 const SAVED_PAUSED_GAME_VERSION = 1;
 const SAVED_PAUSED_GAME_KEY = 'picklePong.savedPausedGame.v1';
-const SOUND_PREFERENCE_KEY = 'picklePong.soundEnabled.v1';
 const ENABLE_DEBUG_SELF_TESTS = true;
 const DEFAULT_GAME_SEED = 0xC0FFEE;
 const PLAYER_COLORS = {
@@ -527,6 +532,20 @@ const paddleHitSoundPools = PADDLE_HIT_SOUND_SRCS.map(src =>
     return audio;
   })
 );
+let courtBounceSoundIndex = 0;
+const courtBounceSounds = Array.from({ length: COURT_BOUNCE_SOUND_POOL_SIZE }, () => {
+  const audio = new Audio(COURT_BOUNCE_SOUND_SRC);
+  audio.preload = 'auto';
+  audio.volume = COURT_BOUNCE_SOUND_VOLUME;
+  return audio;
+});
+let faultSoundIndex = 0;
+const faultSounds = Array.from({ length: FAULT_SOUND_POOL_SIZE }, () => {
+  const audio = new Audio(FAULT_SOUND_SRC);
+  audio.preload = 'auto';
+  audio.volume = FAULT_SOUND_VOLUME;
+  return audio;
+});
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let debugWarnings = [];
@@ -2351,9 +2370,23 @@ function playPaddleHitSound() {
   audio.currentTime = 0;
   audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
 }
+function playCourtBounceSound() {
+  if (!soundEnabled || !courtBounceSounds.length) return;
+  const audio = courtBounceSounds[courtBounceSoundIndex];
+  courtBounceSoundIndex = (courtBounceSoundIndex + 1) % courtBounceSounds.length;
+  audio.currentTime = 0;
+  audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
+}
+function playFaultSound() {
+  if (!soundEnabled || !faultSounds.length) return;
+  const audio = faultSounds[faultSoundIndex];
+  faultSoundIndex = (faultSoundIndex + 1) % faultSounds.length;
+  audio.currentTime = 0;
+  audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
+}
 function unlockPaddleHitSounds() {
   if (!soundEnabled || paddleHitSoundsUnlocked) return;
-  for (const pool of paddleHitSoundPools) {
+  for (const pool of [...paddleHitSoundPools, courtBounceSounds, faultSounds]) {
     for (const audio of pool) {
       const volume = audio.volume;
       audio.volume = PADDLE_HIT_SOUND_UNLOCK_VOLUME;
@@ -4149,23 +4182,6 @@ function localStorageAvailable() {
     return false;
   }
 }
-function storedSoundPreference() {
-  if (!localStorageAvailable()) return null;
-  const value = localStorage.getItem(SOUND_PREFERENCE_KEY);
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return null;
-}
-function applyStoredSoundPreference() {
-  const preference = storedSoundPreference();
-  if (preference === null) return;
-  soundEnabled = preference;
-  soundToggle.checked = preference;
-}
-function persistSoundPreference() {
-  if (!localStorageAvailable()) return;
-  localStorage.setItem(SOUND_PREFERENCE_KEY, String(soundEnabled));
-}
 function savedGameSettingsSnapshot() {
   return {
     physicsModel: activePhysicsModelName,
@@ -4175,8 +4191,7 @@ function savedGameSettingsSnapshot() {
     simSpeedValue: simSpeedSlider.value,
     progressiveSpeedups,
     humanEnabled,
-    visualShadowsEnabled,
-    soundEnabled
+    visualShadowsEnabled
   };
 }
 function applySavedGameSettings(settings = {}) {
@@ -4211,11 +4226,6 @@ function applySavedGameSettings(settings = {}) {
   if (settings.visualShadowsEnabled !== undefined) {
     visualShadowsEnabled = !!settings.visualShadowsEnabled;
     shadowToggle.checked = visualShadowsEnabled;
-  }
-  if (settings.soundEnabled !== undefined) {
-    soundEnabled = !!settings.soundEnabled;
-    soundToggle.checked = soundEnabled;
-    persistSoundPreference();
   }
 }
 function pausedGameStoragePayload() {
@@ -4530,6 +4540,7 @@ function applyGravityCourtBounce(groundPrediction) {
     vz: ball.worldVz,
     fixedZ: false
   });
+  playCourtBounceSound();
   return true;
 }
 function twoBounceRuleFaultForPaddle(player) {
@@ -4594,6 +4605,7 @@ function startPointResolution(winner, { reason = null } = {}) {
   pendingRallyWinner = winner;
   pendingRallyResult = null;
   pendingRallyFaultReason = reason;
+  playFaultSound();
   clearBallHandoffAnimation();
   pointResolveStartTime = performance.now();
   msgEl.textContent = reason || `out — ${teamName(winner)} wins the rally`;
@@ -5542,7 +5554,6 @@ humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checke
 shadowToggle.addEventListener('change', () => { visualShadowsEnabled = shadowToggle.checked; draw(); });
 soundToggle.addEventListener('change', () => {
   soundEnabled = soundToggle.checked;
-  persistSoundPreference();
   if (soundEnabled) unlockPaddleHitSounds();
 });
 aiSpeedSlider.addEventListener('input', syncAISpeed);
@@ -5587,7 +5598,6 @@ document.addEventListener('pointerdown', unlockPaddleHitSounds);
 
 scoreKeeper = new ScoreKeeper(SCORE_LIMIT);
 rallyState = new RallyState();
-applyStoredSoundPreference();
 syncPhysicsButton();
 syncHumanMode();
 setCanvasForOrientation(); initState(); updateInfoText(); draw();
@@ -5649,7 +5659,6 @@ window.__picklePongDebug = {
   getSoundState: () => ({
     enabled: soundEnabled,
     checkboxChecked: soundToggle.checked,
-    storedPreference: storedSoundPreference(),
     unlocked: paddleHitSoundsUnlocked
   }),
   savePausedGameToLocalStorage,
