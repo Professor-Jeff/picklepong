@@ -37,9 +37,11 @@
   #speed-control { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #speed-slider { width: 130px; cursor: pointer; }
   #speed-readout { min-width: 34px; display: inline-block; text-align: right; }
-  #speedup-control, #human-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
+  #speedup-control, #human-control, #shadow-control, #sound-control { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #speedup-toggle { cursor: pointer; }
   #human-toggle { cursor: pointer; }
+  #shadow-toggle { cursor: pointer; }
+  #sound-toggle { cursor: pointer; }
   #ai-speed-control, #human-speed-control { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.05em; white-space: nowrap; }
   #human-speed-control.disabled { opacity: 0.42; }
   #ai-speed-slider, #human-speed-slider { width: 130px; cursor: pointer; }
@@ -214,6 +216,14 @@
           <input id="human-toggle" type="checkbox">
           human
         </label>
+        <label id="shadow-control" for="shadow-toggle">
+          <input id="shadow-toggle" type="checkbox" checked>
+          shadows
+        </label>
+        <label id="sound-control" for="sound-toggle">
+          <input id="sound-toggle" type="checkbox" checked>
+          sound
+        </label>
       </div>
       <div class="pong-ui-row pong-ui-row-bottom">
         <label id="ai-speed-control" for="ai-speed-slider">AI speed
@@ -367,6 +377,10 @@ const BALL_SHADOW_GRAVITY_ONLY = true;
 const SHADOW_SUN_DIRECTION = { x: -1, y: 0.18, z: -2 };
 const PLAYER_REACH_SHADOW_ENABLED = true;
 const PLAYER_REACH_SHADOW_GRAVITY_ONLY = true;
+const PADDLE_HIT_SOUND_SRCS = ['pb_hit1.wav', 'pb_hit2.wav'];
+const PADDLE_HIT_SOUND_VOLUME = 0.42;
+const PADDLE_HIT_SOUND_UNLOCK_VOLUME = 0.001;
+const PADDLE_HIT_SOUND_POOL_SIZE = 4;
 const WORLD_GRAVITY_FT_PER_SEC2 = 32.174;
 const GRAVITY_COURT_BOUNCE_RESTITUTION = 0.62;
 const NET_CENTER_HEIGHT_FT = 34 / 12;
@@ -405,6 +419,7 @@ const PLAYER_CONTACT_WIDTH_FT = 2.875;
 const PLAYER_CONTACT_DEPTH_FT = 0.625;
 const SAVED_PAUSED_GAME_VERSION = 1;
 const SAVED_PAUSED_GAME_KEY = 'picklePong.savedPausedGame.v1';
+const SOUND_PREFERENCE_KEY = 'picklePong.soundEnabled.v1';
 const ENABLE_DEBUG_SELF_TESTS = true;
 const DEFAULT_GAME_SEED = 0xC0FFEE;
 const PLAYER_COLORS = {
@@ -444,6 +459,8 @@ const speedSlider = document.getElementById('speed-slider');
 const speedReadout = document.getElementById('speed-readout');
 const speedupToggle = document.getElementById('speedup-toggle');
 const humanToggle = document.getElementById('human-toggle');
+const shadowToggle = document.getElementById('shadow-toggle');
+const soundToggle = document.getElementById('sound-toggle');
 const aiSpeedSlider = document.getElementById('ai-speed-slider');
 const aiSpeedReadout = document.getElementById('ai-speed-readout');
 const humanSpeedControl = document.getElementById('human-speed-control');
@@ -481,7 +498,7 @@ const playerLegendEl = document.getElementById('player-legend');
 const gameHistoryEl = document.getElementById('game-history');
 
 let orientation = 'portrait';
-let humanEnabled = humanToggle.checked, running = false, paused = false, serving = false, resolvingPoint = false, formingForServe = false, keys = {}, anim = null;
+let humanEnabled = humanToggle.checked, visualShadowsEnabled = shadowToggle.checked, soundEnabled = soundToggle.checked, running = false, paused = false, serving = false, resolvingPoint = false, formingForServe = false, keys = {}, anim = null;
 let scoreKeeper;
 let rallyState;
 let ballSpeedScale = Number(speedSlider.value) / 100;
@@ -499,6 +516,17 @@ let formationStartTime = 0, formationTargets = [];
 let liveSimulationAccumulator = 0;
 let replayBuffer = [], lastRallyReplay = null, rallyReplayStartAt = 0, replayScrubbing = false;
 let autoNextGameTimer = null;
+let paddleHitSoundSampleIndex = 0;
+let paddleHitSoundsUnlocked = false;
+const paddleHitSoundPoolIndexes = PADDLE_HIT_SOUND_SRCS.map(() => 0);
+const paddleHitSoundPools = PADDLE_HIT_SOUND_SRCS.map(src =>
+  Array.from({ length: PADDLE_HIT_SOUND_POOL_SIZE }, () => {
+    const audio = new Audio(src);
+    audio.preload = 'auto';
+    audio.volume = PADDLE_HIT_SOUND_VOLUME;
+    return audio;
+  })
+);
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let debugWarnings = [];
@@ -2312,6 +2340,34 @@ function applyWorldPaddleCollision(player, prediction) {
   else applyShotDecision(decision);
   return true;
 }
+function playPaddleHitSound() {
+  if (!soundEnabled || !paddleHitSoundPools.length) return;
+  const sampleIndex = paddleHitSoundSampleIndex;
+  const pool = paddleHitSoundPools[sampleIndex];
+  const poolIndex = paddleHitSoundPoolIndexes[sampleIndex];
+  const audio = pool[poolIndex];
+  paddleHitSoundSampleIndex = (paddleHitSoundSampleIndex + 1) % paddleHitSoundPools.length;
+  paddleHitSoundPoolIndexes[sampleIndex] = (poolIndex + 1) % pool.length;
+  audio.currentTime = 0;
+  audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
+}
+function unlockPaddleHitSounds() {
+  if (!soundEnabled || paddleHitSoundsUnlocked) return;
+  for (const pool of paddleHitSoundPools) {
+    for (const audio of pool) {
+      const volume = audio.volume;
+      audio.volume = PADDLE_HIT_SOUND_UNLOCK_VOLUME;
+      audio.play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = volume;
+          paddleHitSoundsUnlocked = true;
+        })
+        .catch(() => { audio.volume = volume; });
+    }
+  }
+}
 function setGameSeed(seed = DEFAULT_GAME_SEED) {
   configuredGameSeed = seed >>> 0;
   gameSeed = configuredGameSeed;
@@ -4093,6 +4149,23 @@ function localStorageAvailable() {
     return false;
   }
 }
+function storedSoundPreference() {
+  if (!localStorageAvailable()) return null;
+  const value = localStorage.getItem(SOUND_PREFERENCE_KEY);
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+function applyStoredSoundPreference() {
+  const preference = storedSoundPreference();
+  if (preference === null) return;
+  soundEnabled = preference;
+  soundToggle.checked = preference;
+}
+function persistSoundPreference() {
+  if (!localStorageAvailable()) return;
+  localStorage.setItem(SOUND_PREFERENCE_KEY, String(soundEnabled));
+}
 function savedGameSettingsSnapshot() {
   return {
     physicsModel: activePhysicsModelName,
@@ -4101,7 +4174,9 @@ function savedGameSettingsSnapshot() {
     humanSpeedValue: humanSpeedSlider.value,
     simSpeedValue: simSpeedSlider.value,
     progressiveSpeedups,
-    humanEnabled
+    humanEnabled,
+    visualShadowsEnabled,
+    soundEnabled
   };
 }
 function applySavedGameSettings(settings = {}) {
@@ -4132,6 +4207,15 @@ function applySavedGameSettings(settings = {}) {
   if (settings.humanEnabled !== undefined) {
     humanEnabled = !!settings.humanEnabled;
     humanToggle.checked = humanEnabled;
+  }
+  if (settings.visualShadowsEnabled !== undefined) {
+    visualShadowsEnabled = !!settings.visualShadowsEnabled;
+    shadowToggle.checked = visualShadowsEnabled;
+  }
+  if (settings.soundEnabled !== undefined) {
+    soundEnabled = !!settings.soundEnabled;
+    soundToggle.checked = soundEnabled;
+    persistSoundPreference();
   }
 }
 function pausedGameStoragePayload() {
@@ -4743,7 +4827,10 @@ function checkPaddleHit(p, context = 'live paddle collision') {
   const physicalCollisionPrediction = physicalWorldPaddleCollisionPrediction(p);
   recordPaddleApproachDiagnostic(p, physicalCollisionPrediction);
   const hit = applyWorldPaddleCollision(p, physicalCollisionPrediction);
-  if (hit) recordPaddleHit(p);
+  if (hit) {
+    playPaddleHitSound();
+    recordPaddleHit(p);
+  }
   return hit;
 }
 function physicalPaddleCollisionShouldHaveHit(p) {
@@ -5088,7 +5175,7 @@ function worldPointToCanvas({ x, y }) {
   };
 }
 function ballGroundShadowProjection({ x, y, z = BALL_FIXED_HEIGHT_FT, physicsModelName = activePhysicsModelName } = {}) {
-  if (!BALL_SHADOW_ENABLED || (BALL_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return null;
+  if (!visualShadowsEnabled || !BALL_SHADOW_ENABLED || (BALL_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return null;
   const worldBall = worldPositionFromPlayMove({
     play: courtGeometry.isPortrait ? y : x,
     move: courtGeometry.isPortrait ? x : y,
@@ -5135,7 +5222,7 @@ function convexHull(points) {
   return lower.concat(upper);
 }
 function playerReachShadowPolygon(playerState, physicsModelName = activePhysicsModelName) {
-  if (!PLAYER_REACH_SHADOW_ENABLED || (PLAYER_REACH_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return [];
+  if (!visualShadowsEnabled || !PLAYER_REACH_SHADOW_ENABLED || (PLAYER_REACH_SHADOW_GRAVITY_ONLY && physicsModelName !== 'gravity')) return [];
   const volume = playerContactVolumeFromLegacyPosition(playerState);
   const points = [];
   for (const x of [volume.minX, volume.maxX]) {
@@ -5452,6 +5539,12 @@ canvas.addEventListener('pointerleave', e => {
 speedSlider.addEventListener('input', () => { ballSpeedScale = Number(speedSlider.value) / 100; speedReadout.textContent = `${speedSlider.value}%`; });
 speedupToggle.addEventListener('change', () => { progressiveSpeedups = speedupToggle.checked; });
 humanToggle.addEventListener('change', () => { humanEnabled = humanToggle.checked; if (!humanEnabled) clearHumanPointerTarget(); syncHumanMode(); });
+shadowToggle.addEventListener('change', () => { visualShadowsEnabled = shadowToggle.checked; draw(); });
+soundToggle.addEventListener('change', () => {
+  soundEnabled = soundToggle.checked;
+  persistSoundPreference();
+  if (soundEnabled) unlockPaddleHitSounds();
+});
 aiSpeedSlider.addEventListener('input', syncAISpeed);
 humanSpeedSlider.addEventListener('input', syncHumanSpeed);
 simSpeedSlider.addEventListener('input', syncSimulationSpeed);
@@ -5475,6 +5568,7 @@ if (saveGameBtn) saveGameBtn.addEventListener('click', savePausedGameToLocalStor
 if (restoreGameBtn) restoreGameBtn.addEventListener('click', restoreSavedPausedGame);
 if (clearSavedGameBtn) clearSavedGameBtn.addEventListener('click', clearSavedPausedGame);
 document.addEventListener('keydown', e => {
+  unlockPaddleHitSounds();
   keys[e.key] = true;
   if (e.key === ' ') {
     e.preventDefault();
@@ -5489,9 +5583,11 @@ document.addEventListener('keydown', e => {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
+document.addEventListener('pointerdown', unlockPaddleHitSounds);
 
 scoreKeeper = new ScoreKeeper(SCORE_LIMIT);
 rallyState = new RallyState();
+applyStoredSoundPreference();
 syncPhysicsButton();
 syncHumanMode();
 setCanvasForOrientation(); initState(); updateInfoText(); draw();
@@ -5550,6 +5646,12 @@ window.__picklePongDebug = {
   getAIWorldTargetWarnings: () => aiWorldTargetWarnings.slice(),
   getAIWorldInputWarnings: () => aiWorldInputWarnings.slice(),
   getWorldAIContextWarnings: () => worldAIContextWarnings.slice(),
+  getSoundState: () => ({
+    enabled: soundEnabled,
+    checkboxChecked: soundToggle.checked,
+    storedPreference: storedSoundPreference(),
+    unlocked: paddleHitSoundsUnlocked
+  }),
   savePausedGameToLocalStorage,
   restoreSavedPausedGame,
   clearSavedPausedGame,
