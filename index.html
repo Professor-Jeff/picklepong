@@ -350,6 +350,8 @@ const BALL_TRAIL_GHOSTS = [
   { index: 3, radius: 0.64, alpha: 0.24 },
   { index: 1, radius: 0.78, alpha: 0.34 }
 ];
+const BALL_VISUAL_HEIGHT_SCALE_MAX_FT = 12;
+const BALL_VISUAL_HEIGHT_SCALE_AMOUNT = 0.48;
 const REPLAY_BUFFER_MS = 15000;
 const OPPONENT_TARGET_UV = {
   farLeft: -1,
@@ -402,13 +404,14 @@ const GRAVITY_SHOT_PROFILE = {
   feetTargetDepthFt: 1.25,
   feetTargetNetSide: true,
   feetTargetLateralJitterFt: 1.2,
-  handBattleFeetWeight: 0.6,
+  handBattleFeetWeight: 0.5,
   handBattleGapWeight: 0.2,
-  handBattleSidelineWeight: 0.2,
+  handBattleSidelineWeight: 0.3,
   handBattleLobAfterHits: 6,
   handBattleLobChance: 0.08,
   handBattleLobApexFt: 9,
   handBattleTargetMarginFt: 0.75,
+  handBattleSidelineMarginFt: 0.35,
   handBattleNetClearanceFt: 0.31,
   handBattleNetClearanceJitterFt: 0.35,
   handBattleMinFlightTimeSec: 0.18,
@@ -857,7 +860,7 @@ class Ball {
   legacyAdvance(scale) {
     this.prevX = this.x;
     this.prevY = this.y;
-    this.trail.unshift({ x: this.x, y: this.y });
+    this.trail.unshift({ x: this.x, y: this.y, z: ballZ(this) });
     if (this.trail.length > BALL_TRAIL_HISTORY) this.trail.length = BALL_TRAIL_HISTORY;
     this.x += this.vx * scale;
     this.y += this.vy * scale;
@@ -899,12 +902,13 @@ class Ball {
   }
 
   draw(ctx) {
+    const currentRadius = ballVisualRadius(ballZ(this));
     for (const ghost of BALL_TRAIL_GHOSTS) {
       const point = this.trail[ghost.index];
       if (!point) continue;
-      drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
+      drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, ballVisualRadius(point.z ?? ballZ(this)) * ghost.radius);
     }
-    drawBallAt(this.x, this.y, ballColorForFlightState(this.flightState));
+    drawBallAt(this.x, this.y, ballColorForFlightState(this.flightState), currentRadius);
   }
 }
 
@@ -1361,6 +1365,11 @@ function previousBallZ(b = ball) {
 function ballZVelocity(b = ball) {
   return b && Number.isFinite(b.worldVz) ? b.worldVz : 0;
 }
+function ballVisualRadius(z = BALL_FIXED_HEIGHT_FT) {
+  const height = Math.max(0, z - BALL_GROUND_Z_FT);
+  const scale = 1 + Math.min(1, height / BALL_VISUAL_HEIGHT_SCALE_MAX_FT) * BALL_VISUAL_HEIGHT_SCALE_AMOUNT;
+  return BALL_R * scale;
+}
 function classifyBallFlightState({ z = BALL_FIXED_HEIGHT_FT, vz = 0, fixedZ = true } = {}) {
   if (fixedZ) return 'fixed';
   if (z <= BALL_GROUND_Z_FT + 0.01 && vz <= 0) return 'grounded';
@@ -1371,7 +1380,7 @@ function classifyBallFlightState({ z = BALL_FIXED_HEIGHT_FT, vz = 0, fixedZ = tr
 function ballColorForFlightState(state = 'fixed') {
   switch (state) {
     case 'rising': return '#8FD3FF';
-    case 'falling': return '#FFC857';
+    case 'falling': return '#B48CFF';
     case 'grounded': return '#E85D5D';
     case 'floating': return '#D7E8FF';
     case 'fixed':
@@ -1911,7 +1920,7 @@ function advanceBallFromWorld(scale, context = '') {
   const nextLegacy = worldToPlayMove(prediction.to);
   ball.prevX = ball.x;
   ball.prevY = ball.y;
-  ball.trail.unshift({ x: ball.x, y: ball.y });
+  ball.trail.unshift({ x: ball.x, y: ball.y, z: previousBallZ(ball) });
   if (ball.trail.length > BALL_TRAIL_HISTORY) ball.trail.length = BALL_TRAIL_HISTORY;
   ball.setPlayCoord(nextLegacy.play);
   ball.setMoveCoord(nextLegacy.move);
@@ -1925,7 +1934,7 @@ function advanceBallWithGravityFromWorld(scale, context = '') {
   ball.prevX = ball.x;
   ball.prevY = ball.y;
   ball.prevWorldZ = prediction.from.z;
-  ball.trail.unshift({ x: ball.x, y: ball.y });
+  ball.trail.unshift({ x: ball.x, y: ball.y, z: prediction.from.z });
   if (ball.trail.length > BALL_TRAIL_HISTORY) ball.trail.length = BALL_TRAIL_HISTORY;
   ball.setPlayCoord(nextLegacy.play);
   ball.setMoveCoord(nextLegacy.move);
@@ -2664,6 +2673,7 @@ function targetLargestOpponentGap(hitter) {
 function targetOpponentSideline(hitter) {
   return targetOpponentKitchenUV(hitter, {
     u: gameRandom() < 0.5 ? OPPONENT_TARGET_UV.farLeft : OPPONENT_TARGET_UV.farRight,
+    marginFt: GRAVITY_SHOT_PROFILE.handBattleSidelineMarginFt,
     targetType: 'hand-battle-sideline'
   });
 }
@@ -2784,7 +2794,7 @@ function replaySnapshot(now = performance.now()) {
       z: flight ? flight.z : ballZ(ball),
       previousZ: flight ? flight.previousZ : previousBallZ(ball),
       vz: flight ? flight.vz : ballZVelocity(ball),
-      trail: (ball.trail || []).map(point => ({ x: point.x, y: point.y }))
+      trail: (ball.trail || []).map(point => ({ x: point.x, y: point.y, z: point.z }))
     },
     paddles: allPaddles().map(p => ({
       playerId: p.playerId,
@@ -5449,12 +5459,13 @@ function drawReplayPaddle(p, snapshot) {
 function drawReplayBall(snapshot) {
   const trail = snapshot.ball.trail || [];
   const flightColor = ballColorForFlightState(snapshot.ball.flightState);
+  const currentRadius = ballVisualRadius(snapshot.ball.z);
   for (const ghost of BALL_TRAIL_GHOSTS) {
     const point = trail[ghost.index];
     if (!point) continue;
-    drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, BALL_R * ghost.radius);
+    drawBallAt(point.x, point.y, `rgba(255,255,255,${ghost.alpha})`, ballVisualRadius(point.z ?? snapshot.ball.z) * ghost.radius);
   }
-  drawBallAt(snapshot.ball.x, snapshot.ball.y, flightColor);
+  drawBallAt(snapshot.ball.x, snapshot.ball.y, flightColor, currentRadius);
 }
 function drawReplaySnapshot(snapshot) {
   if (!snapshot || snapshot.orientation !== orientation || snapshot.width !== W || snapshot.height !== H) {
