@@ -387,6 +387,8 @@ const COURT_BOUNCE_SOUND_POOL_SIZE = 3;
 const FAULT_SOUND_SRC = 'pb_fault1.wav';
 const FAULT_SOUND_VOLUME = 0.42;
 const FAULT_SOUND_POOL_SIZE = 2;
+const USE_WEB_AUDIO_SOUND = true;
+const USE_WEB_AUDIO_BOUNCE_SOUND = false;
 const WORLD_GRAVITY_FT_PER_SEC2 = 32.174;
 const GRAVITY_COURT_BOUNCE_RESTITUTION = 0.62;
 const NET_CENTER_HEIGHT_FT = 34 / 12;
@@ -546,6 +548,9 @@ const faultSounds = Array.from({ length: FAULT_SOUND_POOL_SIZE }, () => {
   audio.volume = FAULT_SOUND_VOLUME;
   return audio;
 });
+let soundAudioContext = null;
+let soundAudioLoadingPromise = null;
+const soundAudioBuffersBySrc = new Map();
 let collisionWatchMisses = 0, lastCollisionWatchMiss = null;
 let gameHistoryEntries = [];
 let debugWarnings = [];
@@ -2362,16 +2367,19 @@ function applyWorldPaddleCollision(player, prediction) {
 function playPaddleHitSound() {
   if (!soundEnabled || !paddleHitSoundPools.length) return;
   const sampleIndex = paddleHitSoundSampleIndex;
+  const src = PADDLE_HIT_SOUND_SRCS[sampleIndex];
+  paddleHitSoundSampleIndex = (paddleHitSoundSampleIndex + 1) % paddleHitSoundPools.length;
+  if (playWebAudioSound(src, PADDLE_HIT_SOUND_VOLUME)) return;
   const pool = paddleHitSoundPools[sampleIndex];
   const poolIndex = paddleHitSoundPoolIndexes[sampleIndex];
   const audio = pool[poolIndex];
-  paddleHitSoundSampleIndex = (paddleHitSoundSampleIndex + 1) % paddleHitSoundPools.length;
   paddleHitSoundPoolIndexes[sampleIndex] = (poolIndex + 1) % pool.length;
   audio.currentTime = 0;
   audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
 }
 function playCourtBounceSound() {
   if (!soundEnabled || !courtBounceSounds.length) return;
+  if (USE_WEB_AUDIO_BOUNCE_SOUND && playWebAudioSound(COURT_BOUNCE_SOUND_SRC, COURT_BOUNCE_SOUND_VOLUME)) return;
   const audio = courtBounceSounds[courtBounceSoundIndex];
   courtBounceSoundIndex = (courtBounceSoundIndex + 1) % courtBounceSounds.length;
   audio.currentTime = 0;
@@ -2379,13 +2387,63 @@ function playCourtBounceSound() {
 }
 function playFaultSound() {
   if (!soundEnabled || !faultSounds.length) return;
+  if (playWebAudioSound(FAULT_SOUND_SRC, FAULT_SOUND_VOLUME)) return;
   const audio = faultSounds[faultSoundIndex];
   faultSoundIndex = (faultSoundIndex + 1) % faultSounds.length;
   audio.currentTime = 0;
   audio.play().then(() => { paddleHitSoundsUnlocked = true; }).catch(() => {});
 }
+function soundAudioSources() {
+  return [...new Set([...PADDLE_HIT_SOUND_SRCS, COURT_BOUNCE_SOUND_SRC, FAULT_SOUND_SRC])];
+}
+function ensureSoundAudioContext() {
+  if (!USE_WEB_AUDIO_SOUND) return null;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!soundAudioContext) soundAudioContext = new AudioContextClass();
+  return soundAudioContext;
+}
+function loadWebAudioSounds() {
+  const audioContext = ensureSoundAudioContext();
+  if (!audioContext) return Promise.resolve(false);
+  if (soundAudioLoadingPromise) return soundAudioLoadingPromise;
+  soundAudioLoadingPromise = audioContext.resume()
+    .then(() => Promise.all(soundAudioSources().map(src => {
+      if (soundAudioBuffersBySrc.has(src)) return true;
+      return fetch(src)
+        .then(response => {
+          if (!response.ok) throw new Error(`audio fetch failed: ${src}`);
+          return response.arrayBuffer();
+        })
+        .then(buffer => audioContext.decodeAudioData(buffer))
+        .then(decoded => {
+          soundAudioBuffersBySrc.set(src, decoded);
+          return true;
+        });
+    })))
+    .then(() => true)
+    .catch(() => false);
+  return soundAudioLoadingPromise;
+}
+function playWebAudioSound(src, volume) {
+  const audioContext = ensureSoundAudioContext();
+  const buffer = audioContext ? soundAudioBuffersBySrc.get(src) : null;
+  if (!audioContext || !buffer || audioContext.state !== 'running') return false;
+  const source = audioContext.createBufferSource();
+  const gain = audioContext.createGain();
+  source.buffer = buffer;
+  gain.gain.value = volume;
+  source.connect(gain);
+  gain.connect(audioContext.destination);
+  source.start();
+  paddleHitSoundsUnlocked = true;
+  return true;
+}
 function unlockPaddleHitSounds() {
   if (!soundEnabled || paddleHitSoundsUnlocked) return;
+  loadWebAudioSounds().then(unlocked => {
+    if (unlocked) paddleHitSoundsUnlocked = true;
+  });
   for (const pool of [...paddleHitSoundPools, courtBounceSounds, faultSounds]) {
     for (const audio of pool) {
       const volume = audio.volume;
@@ -5659,7 +5717,12 @@ window.__picklePongDebug = {
   getSoundState: () => ({
     enabled: soundEnabled,
     checkboxChecked: soundToggle.checked,
-    unlocked: paddleHitSoundsUnlocked
+    unlocked: paddleHitSoundsUnlocked,
+    webAudioEnabled: USE_WEB_AUDIO_SOUND,
+    webAudioBounceEnabled: USE_WEB_AUDIO_BOUNCE_SOUND,
+    webAudioState: soundAudioContext ? soundAudioContext.state : 'not-created',
+    decodedBuffers: soundAudioBuffersBySrc.size,
+    expectedBuffers: soundAudioSources().length
   }),
   savePausedGameToLocalStorage,
   restoreSavedPausedGame,
